@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# Git
+.gitignore
+
+# OpenCode local config
+.opencode/
