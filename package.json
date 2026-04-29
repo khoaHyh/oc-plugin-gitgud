@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/khuynh/oc-plugin-gitgud.git"
+    "url": "git+https://github.com/khoaHyh/oc-plugin-gitgud.git"
   },
   "exports": {
     "./tui": {
