@@ -42,7 +42,7 @@ For example:
 
 ```json
 {
-  "commit_model": "openai/gpt-5.1",
+  "commit_model": "opencode-go/kimi-k2.6",
   "commit_system_instructions": "Prefer short conventional commits. Mention issue IDs when present."
 }
 ```
