@@ -1,8 +1,20 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "oc-plugin-gitgud",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
+  "files": [
+    "action-catalog.ts",
+    "change-set.ts",
+    "commit-message.ts",
+    "config.ts",
+    "git.ts",
+    "runtime.ts",
+    "status-dialog.tsx",
+    "tui.tsx",
+    "types.ts",
+    "view-model.ts"
+  ],
   "scripts": {
     "fmt": "oxfmt --write .",
     "fmt:check": "oxfmt --check .",
