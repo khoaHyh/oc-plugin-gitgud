@@ -31,6 +31,39 @@ Plugin options can be configured via the `tui.json` config file.
 - `confirm_push` (`boolean`, default `true`)
 - `confirm_stage_all_on_commit` (`boolean`, default `true`)
 - `commit_agent` (`string`, default `"build"`)
+- `commit_model` (`string`, optional) overrides the model for generated commit messages using
+  `provider/model` format, for example `opencode-go/kimi-k2.6`
+- `commit_system_instructions` (`string`, optional) appends extra style guidance to GitGud's default
+  commit-message system prompt
+- `keybinds` (`object`) overrides GitGud's OpenCode command keybinds. Set a keybind to `false`,
+  `null`, an empty string, or `"none"` to disable it.
+
+For example:
+
+```json
+{
+  "commit_model": "openai/gpt-5.1",
+  "commit_system_instructions": "Prefer short conventional commits. Mention issue IDs when present."
+}
+```
+
+Default keybinds use OpenCode leader sequences to avoid common terminal, macOS, and window-manager
+shortcuts. Mutating actions use uppercase shifted leader chords to reduce accidental collisions with
+OpenCode's lowercase leader defaults:
+
+```json
+{
+  "keybinds": {
+    "open_status": "<leader>v",
+    "stage_all": "<leader>A",
+    "unstage_all": "<leader>U",
+    "generate_commit_message": "<leader>p",
+    "commit": "<leader>C",
+    "push": "<leader>P",
+    "refresh": "f5"
+  }
+}
+```
 
 ## Commands
 
@@ -41,4 +74,3 @@ Plugin options can be configured via the `tui.json` config file.
 - `GitGud: Commit`
 - `GitGud: Push`
 - `GitGud: Refresh`
-

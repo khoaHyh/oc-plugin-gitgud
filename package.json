@@ -21,7 +21,18 @@
         "replace_sidebar_files": false,
         "confirm_push": true,
         "confirm_stage_all_on_commit": true,
-        "commit_agent": "build"
+        "commit_agent": "build",
+        "commit_model": "",
+        "commit_system_instructions": "",
+        "keybinds": {
+          "open_status": "<leader>v",
+          "stage_all": "<leader>A",
+          "unstage_all": "<leader>U",
+          "generate_commit_message": "<leader>p",
+          "commit": "<leader>C",
+          "push": "<leader>P",
+          "refresh": "f5"
+        }
       }
     }
   },

@@ -1,10 +1,11 @@
 /** @jsxImportSource @opentui/solid */
 import { StyledText, type TextChunk } from "@opentui/core"
-import { createMemo } from "solid-js"
+import { createMemo, type Accessor } from "solid-js"
 import type { JSX } from "solid-js"
-import { gitDialogActionOptions, parseGitDialogActionValue, type GitDialogActionValue } from "./action-catalog"
-import type { GitFile, GitFileTone } from "./change-set"
-import type { Api, GitGudActions, GitState } from "./types"
+import type { GitFileTone } from "./change-set"
+import type { GitGudRuntime } from "./runtime"
+import type { Api } from "./types"
+import type { GitStatusFileOptionViewModel, GitStatusOptionViewModel } from "./view-model"
 
 type FileOptionValue = `file:${string}`
 type OptionValue = `action:${string}` | FileOptionValue
@@ -21,8 +22,6 @@ type FileOption = {
   gutter: JSX.Element
 }
 
-const fileOptionValue = (path: string): FileOptionValue => `file:${path}`
-
 const toneColor = (theme: Theme, tone: GitFileTone) => {
   if (tone === "success") return theme.success
   if (tone === "warning") return theme.warning
@@ -32,7 +31,7 @@ const toneColor = (theme: Theme, tone: GitFileTone) => {
 
 const chunk = (text: string, fg: ThemeColor): TextChunk => ({ __isChunk: true, text, fg })
 
-const fileFooter = (file: GitFile, theme: Theme) => {
+const fileFooter = (file: GitStatusFileOptionViewModel, theme: Theme) => {
   const chunks = [
     ...(file.additions ? [chunk(` +${file.additions}`, theme.diffAdded)] : []),
     ...(file.deletions ? [chunk(` -${file.deletions}`, theme.diffRemoved)] : []),
@@ -40,28 +39,34 @@ const fileFooter = (file: GitFile, theme: Theme) => {
   return chunks.length ? new StyledText(chunks) : ""
 }
 
-const FileStatus = (props: { api: Api; path: string; state: () => GitState }) => {
+const FileStatus = (props: { api: Api; file: Accessor<GitStatusFileOptionViewModel | undefined> }) => {
   const theme = createMemo(() => props.api.theme.current)
-  const file = createMemo(() => props.state().files.find((item) => item.path === props.path))
-
-  return <text fg={toneColor(theme(), file()?.statusTone ?? "muted")}>{file()?.statusLabel ?? "··"}</text>
+  return <text fg={toneColor(theme(), props.file()?.statusTone ?? "muted")}>{props.file()?.statusLabel ?? "··"}</text>
 }
 
-const FileFooter = (props: { api: Api; path: string; state: () => GitState }) => {
+const FileFooter = (props: { api: Api; file: Accessor<GitStatusFileOptionViewModel | undefined> }) => {
   const theme = createMemo(() => props.api.theme.current)
-  const file = createMemo(() => props.state().files.find((item) => item.path === props.path))
   const footer = createMemo(() => {
-    const item = file()
+    const item = props.file()
     return item ? fileFooter(item, theme()) : ""
   })
 
   return <>{footer()}</>
 }
 
-export const GitStatusDialog = (props: { api: Api; state: () => GitState; actions: GitGudActions }) => {
+export const GitStatusDialog = (props: { api: Api; runtime: GitGudRuntime }) => {
   const fileOptionCache = new Map<string, FileOption>()
 
-  const fileOption = (file: GitFile) => {
+  const fileMap = createMemo(() => {
+    const view = props.runtime.view.statusDialog()
+    const map = new Map<string, GitStatusFileOptionViewModel>()
+    for (const item of view.options) {
+      if (item.kind === "file") map.set(item.path, item)
+    }
+    return map
+  })
+
+  const fileOption = (file: GitStatusFileOptionViewModel) => {
     const fg = toneColor(props.api.theme.current, file.titleTone)
     const cached = fileOptionCache.get(file.path)
     if (cached && cached.title === file.title && cached.description === file.description && cached.fg === fg)
@@ -69,58 +74,48 @@ export const GitStatusDialog = (props: { api: Api; state: () => GitState; action
 
     const option: FileOption = {
       title: file.title,
-      value: fileOptionValue(file.path),
+      value: file.value,
       description: file.description,
       fg,
-      footer: <FileFooter api={props.api} path={file.path} state={props.state} />,
+      footer: <FileFooter api={props.api} file={() => fileMap().get(file.path)} />,
       category: "Files",
-      gutter: <FileStatus api={props.api} path={file.path} state={props.state} />,
+      gutter: <FileStatus api={props.api} file={() => fileMap().get(file.path)} />,
     }
     fileOptionCache.set(file.path, option)
     return option
   }
 
   const options = createMemo(() => {
-    const paths = new Set(props.state().files.map((file) => file.path))
+    const view = props.runtime.view.statusDialog()
+    const paths = new Set(
+      view.options.flatMap((item) => {
+        if (item.kind !== "file") return []
+        return [item.path]
+      }),
+    )
     for (const path of fileOptionCache.keys()) {
       if (!paths.has(path)) fileOptionCache.delete(path)
     }
-    return [...gitDialogActionOptions(props.state()), ...props.state().files.map(fileOption)]
+    return view.options.map((item): GitStatusOptionViewModel | FileOption => {
+      if (item.kind === "file") return fileOption(item)
+      return item
+    })
   })
-
-  const selectAction = (action: GitDialogActionValue) => {
-    if (action === "stage-all") return void props.actions.stageAll()
-    if (action === "unstage-all") return void props.actions.unstageAll()
-    if (action === "generate-commit-message") return void props.actions.generateMessage()
-    if (action === "commit") return props.actions.showCommit()
-    if (action === "push") return void props.actions.push()
-  }
-
-  const selectFile = (path: string) => {
-    const file = props.state().files.find((item) => item.path === path)
-    if (!file) return
-    if (file.unstaged || file.untracked) {
-      void props.actions.stageFile(file)
-      return
-    }
-    if (file.staged) {
-      void props.actions.unstageFile(file)
-    }
-  }
 
   return (
     <props.api.ui.DialogSelect<OptionValue>
-      title="Git Status"
-      placeholder="Search changed files"
+      title={props.runtime.view.statusDialog().title}
+      placeholder={props.runtime.view.statusDialog().placeholder}
       options={options()}
       onSelect={(option) => {
-        if (props.state().busy || option.disabled) return
-        const action = parseGitDialogActionValue(option.value)
-        if (action) {
-          selectAction(action)
+        if (props.runtime.view.statusDialog().busy || option.disabled) return
+        const viewOption = props.runtime.view.statusDialog().options.find((item) => item.value === option.value)
+        if (!viewOption) return
+        if (viewOption.kind === "action") {
+          props.runtime.runDialogAction(viewOption.action)
           return
         }
-        selectFile(option.value.slice("file:".length))
+        props.runtime.selectStatusFile(viewOption.path)
       }}
     />
   )

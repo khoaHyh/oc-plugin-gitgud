@@ -1,27 +1,24 @@
 /** @jsxImportSource @opentui/solid */
-import type { TuiCommand, TuiPlugin, TuiPluginModule, TuiSlotPlugin } from "@opencode-ai/plugin/tui"
+import type { TuiCommand, TuiKeybindSet, TuiPlugin, TuiPluginModule, TuiSlotPlugin } from "@opencode-ai/plugin/tui"
 import { createMemo, createSignal, Show } from "solid-js"
-import { gitActionCatalog, gitCommandValue, type GitActionValue } from "./action-catalog"
-import { firstLine, type GitFile } from "./change-set"
-import { commitMessageParts, commitMessagePrompt, commitMessageSystem, textParts } from "./commit-message"
+import { defaultGitGudKeybinds } from "./action-catalog"
+import type { GitFile } from "./change-set"
 import { normalizeConfig, type GitGudConfig } from "./config"
 import { createGit } from "./git"
+import { createGitGudRuntime, type GitGudHostAdapter, type GitGudRuntime } from "./runtime"
 import { GitStatusDialog } from "./status-dialog"
-import type { Api, GitGudActions, GitState, ToastVariant } from "./types"
+import type { Api, GitState } from "./types"
 
-const id = "gitgud"
-
-export type { Api, GitGudActions, GitState }
+export type { Api, GitState }
+export type { GitGudRuntime }
 export type { GitFile }
+export type { GitGudRuntime as GitGudActions }
 
-export const createActions = (
-  api: Api,
-  options: GitGudConfig,
-  state: () => GitState,
-  setState: (patch: Partial<GitState>) => void,
-): GitGudActions => {
-  const git = createGit(api)
+type OpenCodeGitGudHostAdapter = GitGudHostAdapter & {
+  install: (runtime: GitGudRuntime, keybinds: TuiKeybindSet, options: GitGudConfig) => Promise<void>
+}
 
+const createHostAdapter = (api: Api): OpenCodeGitGudHostAdapter => {
   const responseErrorMessage = (err: unknown, fallback: string) => {
     if (err && typeof err === "object" && "message" in err && typeof err.message === "string") return err.message
     if (err && typeof err === "object" && "data" in err) {
@@ -31,203 +28,109 @@ export const createActions = (
     return fallback
   }
 
-  const toast = (variant: ToastVariant, message: string) => {
-    api.ui.toast({ variant, message })
-  }
-
-  const refresh: GitGudActions["refresh"] = async (patch = {}, options) => {
-    if (options?.loading ?? true) setState({ loading: true, error: undefined })
-    try {
-      setState({
-        ...patch,
-        files: await git.status(),
-        branch: api.state.vcs?.branch,
-        error: undefined,
-        loading: false,
-      })
-    } catch (err) {
-      setState({
-        ...patch,
-        files: [],
-        error: err instanceof Error ? err.message : String(err),
-        loading: false,
-      })
-    }
-  }
-
-  const mutate = async (label: string, task: () => Promise<unknown>) => {
-    if (state().busy) return false
-    setState({ busy: true })
-    try {
-      await task()
-      toast("success", label)
-      return true
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : String(err))
-      return false
-    } finally {
-      await refresh({ busy: false }, { loading: false })
-    }
-  }
-
-  const commit = async (message: string) => {
-    const parts = commitMessageParts(message)
-    if (!parts.summary) {
-      toast("warning", "Commit message is required.")
-      return
-    }
-    if (await mutate("Committed staged changes.", () => git.commit(message))) {
-      setState({ message: "" })
-      api.ui.dialog.clear()
-    }
-  }
-
-  const showCommit = (initial = state().message) => {
-    const staged = state().files.filter((file) => file.staged)
-    const changed = state().files.length > 0
-
-    if (staged.length === 0 && changed && options.confirmStageAllOnCommit) {
+  return {
+    branch: () => api.state.vcs?.branch,
+    toast: (variant, message) => api.ui.toast({ variant, message }),
+    confirm(input) {
+      api.ui.dialog.replace(() => <api.ui.DialogConfirm {...input} />)
+    },
+    promptCommit(input) {
       api.ui.dialog.replace(() => (
-        <api.ui.DialogConfirm
-          title="Stage all changes?"
-          message="There are no staged files. Stage all changes before committing?"
-          onConfirm={() => {
-            void mutate("Staged all changes.", () => git.stageAll()).then(() => showCommit(initial))
-          }}
+        <api.ui.DialogPrompt
+          title="Commit staged changes"
+          placeholder="commit message"
+          value={input.initial}
+          busy={input.busy}
+          busyText="committing"
+          onConfirm={input.onConfirm}
         />
       ))
-      return
-    }
-
-    if (staged.length === 0) {
-      toast("warning", "No staged files to commit.")
-      return
-    }
-
-    api.ui.dialog.replace(() => (
-      <api.ui.DialogPrompt
-        title="Commit staged changes"
-        placeholder="commit message"
-        value={initial}
-        busy={state().busy}
-        busyText="committing"
-        onConfirm={(value) => void commit(value)}
-      />
-    ))
-  }
-
-  const generateMessage = async () => {
-    if (state().busy) return
-    setState({ busy: true })
-    let sessionID = ""
-    try {
-      const [stat, diff] = await Promise.all([git.stagedStat(), git.stagedDiff()])
-      if (!diff.stdout.trim()) {
-        toast("warning", "No staged changes to describe.")
-        return
-      }
-
+    },
+    showStatus(runtime) {
+      api.ui.dialog.replace(() => <GitStatusDialog api={api} runtime={runtime} />)
+      api.ui.dialog.setSize("large")
+    },
+    clearDialog: () => api.ui.dialog.clear(),
+    async requestCommitMessage(input) {
+      let sessionID = ""
       const session = await api.client.session.create({ title: "GitGud commit message" })
       if (session.error) throw new Error(responseErrorMessage(session.error, "Failed to create commit message session"))
       sessionID = session.data.id
+      try {
+        const response = await api.client.session.prompt({
+          sessionID,
+          agent: input.agent,
+          model: input.model,
+          system: input.system,
+          parts: [{ type: "text", text: input.prompt }],
+        })
+        if (response.error) throw new Error(responseErrorMessage(response.error, "Failed to generate commit message"))
+        return response.data.parts
+      } finally {
+        if (sessionID) void api.client.session.delete({ sessionID }).catch(() => {})
+      }
+    },
+    async install(runtime, keybinds, options) {
+      let replacedSidebarFiles = false
+      if (options.replaceSidebarFiles) {
+        const item = api.plugins.list().find((entry) => entry.id === "internal:sidebar-files")
+        if (item?.enabled && item.active) {
+          replacedSidebarFiles = await api.plugins.deactivate("internal:sidebar-files")
+        }
+      }
 
-      const response = await api.client.session.prompt({
-        sessionID,
-        agent: options.commitAgent,
-        system: commitMessageSystem,
-        parts: [
-          {
-            type: "text",
-            text: commitMessagePrompt(stat.stdout, diff.stdout),
-          },
-        ],
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const scheduleRefresh = () => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => void runtime.refresh(), 150)
+      }
+
+      const unwatchFile = api.event.on("file.watcher.updated", scheduleRefresh)
+      const unwatchVcs = api.event.on("vcs.branch.updated", scheduleRefresh)
+
+      api.command.register(() => commands({ runtime, keybinds }))
+      api.slots.register(slot({ api, runtime }))
+      await runtime.refresh()
+
+      api.lifecycle.onDispose(async () => {
+        if (timer) clearTimeout(timer)
+        unwatchFile()
+        unwatchVcs()
+        if (replacedSidebarFiles) {
+          await api.plugins.activate("internal:sidebar-files")
+        }
       })
-
-      if (response.error) throw new Error(responseErrorMessage(response.error, "Failed to generate commit message"))
-
-      const message = textParts(response.data.parts)
-      if (!message) throw new Error("The model returned an empty commit message")
-      setState({ message })
-      toast("success", "Generated commit message.")
-      showCommit(message)
-    } catch (err) {
-      toast("error", err instanceof Error ? err.message : String(err))
-    } finally {
-      if (sessionID) void api.client.session.delete({ sessionID }).catch(() => {})
-      setState({ busy: false })
-    }
-  }
-
-  const push = async () => {
-    const run = () => mutate("Pushed current branch.", () => git.push())
-    if (!options.confirmPush) {
-      await run()
-      return
-    }
-
-    api.ui.dialog.replace(() => (
-      <api.ui.DialogConfirm
-        title="Push current branch?"
-        message={`Run git push${state().branch ? ` on ${state().branch}` : ""}?`}
-        onConfirm={() => void run()}
-      />
-    ))
-  }
-
-  const actions: GitGudActions = {
-    refresh,
-    stageFile(file) {
-      return mutate(`Staged ${firstLine(file.path)}.`, () => git.stageFile(file))
-    },
-    stageAll() {
-      return mutate("Staged all changes.", () => git.stageAll())
-    },
-    unstageFile(file) {
-      return mutate(`Unstaged ${firstLine(file.path)}.`, () => git.unstageFile(file))
-    },
-    unstageAll() {
-      return mutate("Unstaged all changes.", () => git.unstageAll())
-    },
-    generateMessage,
-    showCommit,
-    push,
-    showStatus() {
-      api.ui.dialog.replace(() => <GitStatusDialog api={api} state={state} actions={actions} />)
-      api.ui.dialog.setSize("large")
-      void refresh()
     },
   }
-
-  return actions
 }
 
-const runAction = (value: GitActionValue, actions: GitGudActions) => {
-  if (value === "open-status") return actions.showStatus()
-  if (value === "stage-all") return void actions.stageAll()
-  if (value === "unstage-all") return void actions.unstageAll()
-  if (value === "generate-commit-message") return void actions.generateMessage()
-  if (value === "commit") return actions.showCommit()
-  if (value === "push") return void actions.push()
-  if (value === "refresh") return void actions.refresh()
-}
-
-const commands = (state: () => GitState, actions: GitGudActions): TuiCommand[] => {
-  return gitActionCatalog.map((item) => ({
-    title: item.commandTitle,
-    value: gitCommandValue(item.value),
-    category: item.category,
-    enabled: item.enabled(state()),
-    onSelect() {
-      runAction(item.value, actions)
-    },
-  }))
+const commands = ({ runtime, keybinds }: { runtime: GitGudRuntime; keybinds: TuiKeybindSet }): TuiCommand[] => {
+  return runtime.view.commands().map((item) => {
+    const keybind = keybinds.get(item.keybindName)
+    return {
+      title: item.title,
+      value: item.value,
+      category: item.category,
+      keybind: keybind === "none" ? undefined : keybind,
+      enabled: item.enabled,
+      onSelect() {
+        runtime.runAction(item.action)
+      },
+    }
+  })
 }
 
 const Button = (props: { label: string; onPress: () => void; disabled?: boolean; muted?: boolean; api: Api }) => {
   const theme = createMemo(() => props.api.theme.current)
+  const inactive = createMemo(() => props.disabled || props.muted)
+
   return (
-    <text
-      fg={props.disabled || props.muted ? theme().textMuted : theme().primary}
+    <box
+      backgroundColor={inactive() ? theme().background : theme().primary}
+      height={1}
+      width={props.label.length + 2}
+      alignItems="center"
+      justifyContent="center"
       onMouseDown={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -238,74 +141,63 @@ const Button = (props: { label: string; onPress: () => void; disabled?: boolean;
         if (!props.disabled) props.onPress()
       }}
     >
-      [{props.label}]
-    </text>
+      <text
+        fg={inactive() ? theme().textMuted : theme().selectedListItemText}
+        onMouseDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onMouseUp={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (!props.disabled) props.onPress()
+        }}
+      >
+        {props.label}
+      </text>
+    </box>
   )
 }
 
-const Sidebar = (props: { api: Api; state: () => GitState; actions: GitGudActions }) => {
+const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
   const theme = createMemo(() => props.api.theme.current)
-  const staged = createMemo(() => props.state().files.filter((file) => file.staged))
-  const unstaged = createMemo(() => props.state().files.filter((file) => file.unstaged || file.untracked))
-  const hasFiles = createMemo(() => props.state().files.length > 0)
-  const summary = createMemo(() => {
-    const dirty = props.state().files.length
-    return `${dirty} dirty · ${unstaged().length} unstaged · ${staged().length} staged`
-  })
+  const view = createMemo(() => props.runtime.view.sidebar())
 
   return (
-    <box gap={1}>
+    <box>
       <text fg={theme().text}>
-        <b>GitGud</b>
+        <b>{view().title}</b>
       </text>
-      <Show when={props.state().error}>
+      <Show when={view().error}>
         <text fg={theme().error} wrapMode="word">
-          GitGud: {props.state().error}
+          GitGud: {view().error}
         </text>
       </Show>
-      <Show when={hasFiles()}>
-        <text fg={theme().textMuted}>{summary()}</text>
-        <box flexDirection="row" gap={1}>
-          <Button api={props.api} label="open" disabled={props.state().busy} onPress={props.actions.showStatus} />
-          <Button
-            api={props.api}
-            label="msg"
-            disabled={props.state().busy || staged().length === 0}
-            onPress={props.actions.generateMessage}
-          />
-          <Button
-            api={props.api}
-            label="commit"
-            disabled={props.state().busy}
-            onPress={() => props.actions.showCommit()}
-          />
-          <Button api={props.api} label="push" disabled={props.state().busy} onPress={props.actions.push} />
-        </box>
-      </Show>
-      <Show when={!hasFiles() && !props.state().error}>
-        <text fg={theme().textMuted}>0 dirty · 0 unstaged · 0 staged</text>
-        <box flexDirection="row" gap={1}>
-          <Button api={props.api} label="open" disabled={props.state().busy} onPress={props.actions.showStatus} />
-          <Button api={props.api} label="msg" disabled={true} onPress={props.actions.generateMessage} />
-          <Button
-            api={props.api}
-            label="commit"
-            disabled={props.state().busy}
-            onPress={() => props.actions.showCommit()}
-          />
-          <Button api={props.api} label="push" disabled={props.state().busy} onPress={props.actions.push} />
+      <Show when={view().hasFiles || !view().error}>
+        <box gap={1}>
+          <text fg={theme().textMuted}>{view().summary}</text>
+          <box flexDirection="row" gap={1}>
+            {view().buttons.map((button) => (
+              <Button
+                api={props.api}
+                label={button.label}
+                disabled={button.disabled}
+                onPress={() => props.runtime.runAction(button.action)}
+              />
+            ))}
+          </box>
         </box>
       </Show>
     </box>
   )
 }
 
-const slot = (api: Api, state: () => GitState, actions: GitGudActions): TuiSlotPlugin => {
+const slot = ({ api, runtime }: { api: Api; runtime: GitGudRuntime }): TuiSlotPlugin => {
   return {
     order: 500,
     slots: {
       sidebar_content() {
-        return <Sidebar api={api} state={state} actions={actions} />
+        return <Sidebar api={api} runtime={runtime} />
       },
     },
   }
@@ -314,6 +206,7 @@ const slot = (api: Api, state: () => GitState, actions: GitGudActions): TuiSlotP
 const tui: TuiPlugin = async (api, options) => {
   const optionsValue = normalizeConfig(options)
   if (!optionsValue.enabled) return
+  const keybinds = api.keybind.create(defaultGitGudKeybinds, optionsValue.keybinds)
 
   const [state, setStateValue] = createSignal<GitState>({
     loading: true,
@@ -323,41 +216,19 @@ const tui: TuiPlugin = async (api, options) => {
     branch: api.state.vcs?.branch,
   })
   const setState = (patch: Partial<GitState>) => setStateValue((value) => ({ ...value, ...patch }))
-  const actions = createActions(api, optionsValue, state, setState)
-
-  let replacedSidebarFiles = false
-  if (optionsValue.replaceSidebarFiles) {
-    const item = api.plugins.list().find((entry) => entry.id === "internal:sidebar-files")
-    if (item?.enabled && item.active) {
-      replacedSidebarFiles = await api.plugins.deactivate("internal:sidebar-files")
-    }
-  }
-
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const scheduleRefresh = () => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(() => void actions.refresh(), 150)
-  }
-
-  const unwatchFile = api.event.on("file.watcher.updated", scheduleRefresh)
-  const unwatchVcs = api.event.on("vcs.branch.updated", scheduleRefresh)
-
-  api.command.register(() => commands(state, actions))
-  api.slots.register(slot(api, state, actions))
-  await actions.refresh()
-
-  api.lifecycle.onDispose(async () => {
-    if (timer) clearTimeout(timer)
-    unwatchFile()
-    unwatchVcs()
-    if (replacedSidebarFiles) {
-      await api.plugins.activate("internal:sidebar-files")
-    }
+  const host = createHostAdapter(api)
+  const runtime = createGitGudRuntime({
+    git: createGit(api),
+    host,
+    config: optionsValue,
+    state,
+    setState,
   })
+  await host.install(runtime, keybinds, optionsValue)
 }
 
 const plugin: TuiPluginModule & { id: string } = {
-  id,
+  id: "gitgud",
   tui,
 }
 

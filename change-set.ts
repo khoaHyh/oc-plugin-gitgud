@@ -44,7 +44,15 @@ const titleTone = (staged: boolean, unstaged: boolean): GitFileTone => {
   return "text"
 }
 
-const statusTone = (untracked: boolean, staged: boolean, unstaged: boolean): GitFileTone => {
+const statusTone = ({
+  untracked,
+  staged,
+  unstaged,
+}: {
+  untracked: boolean
+  staged: boolean
+  unstaged: boolean
+}): GitFileTone => {
   if (untracked) return "warning"
   if (staged && !unstaged) return "success"
   if (staged && unstaged) return "warning"
@@ -91,7 +99,7 @@ export const createGitChangeSet = (statusOutput: string, numstatOutput: string):
       description: previousPath ? firstLine(path) : undefined,
       statusLabel: statusLabel(code),
       titleTone: titleTone(staged, unstaged),
-      statusTone: statusTone(untracked, staged, unstaged),
+      statusTone: statusTone({ untracked, staged, unstaged }),
       staged,
       unstaged,
       untracked,

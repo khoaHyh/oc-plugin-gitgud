@@ -11,14 +11,33 @@ export type GitActionValue =
 
 export type GitDialogActionValue = Exclude<GitActionValue, "open-status" | "refresh">
 export type GitDialogActionOptionValue = `action:${GitDialogActionValue}`
+export type GitActionKeybindName =
+  | "gitgud.open_status"
+  | "gitgud.stage_all"
+  | "gitgud.unstage_all"
+  | "gitgud.generate_commit_message"
+  | "gitgud.commit"
+  | "gitgud.push"
+  | "gitgud.refresh"
 
 export type GitActionCatalogItem = {
   value: GitActionValue
   commandTitle: string
   dialogTitle?: string
   category: "Git"
+  keybindName: GitActionKeybindName
   enabled: (state: GitState) => boolean
 }
+
+export const defaultGitGudKeybinds = {
+  "gitgud.open_status": "<leader>v",
+  "gitgud.stage_all": "<leader>A",
+  "gitgud.unstage_all": "<leader>U",
+  "gitgud.generate_commit_message": "<leader>p",
+  "gitgud.commit": "<leader>C",
+  "gitgud.push": "<leader>P",
+  "gitgud.refresh": "f5",
+} satisfies Record<GitActionKeybindName, string>
 
 const hasStaged = (state: GitState) => state.files.some((file) => file.staged)
 const hasUnstaged = (state: GitState) => state.files.some((file) => file.unstaged || file.untracked)
@@ -34,6 +53,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     value: "open-status",
     commandTitle: "GitGud: Open Git Status",
     category: "Git",
+    keybindName: "gitgud.open_status",
     enabled: (state) => !state.busy,
   },
   {
@@ -41,6 +61,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     commandTitle: "GitGud: Stage all",
     dialogTitle: "Stage all changes",
     category: "Git",
+    keybindName: "gitgud.stage_all",
     enabled: (state) => hasUnstaged(state) && !state.busy,
   },
   {
@@ -48,6 +69,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     commandTitle: "GitGud: Unstage all",
     dialogTitle: "Unstage all changes",
     category: "Git",
+    keybindName: "gitgud.unstage_all",
     enabled: (state) => hasStaged(state) && !state.busy,
   },
   {
@@ -55,6 +77,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     commandTitle: "GitGud: Generate commit message",
     dialogTitle: "Generate commit message",
     category: "Git",
+    keybindName: "gitgud.generate_commit_message",
     enabled: (state) => hasStaged(state) && !state.busy,
   },
   {
@@ -62,6 +85,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     commandTitle: "GitGud: Commit",
     dialogTitle: "Commit staged changes",
     category: "Git",
+    keybindName: "gitgud.commit",
     enabled: (state) => state.files.length > 0 && !state.busy,
   },
   {
@@ -69,12 +93,14 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     commandTitle: "GitGud: Push",
     dialogTitle: "Push current branch",
     category: "Git",
+    keybindName: "gitgud.push",
     enabled: (state) => !state.busy,
   },
   {
     value: "refresh",
     commandTitle: "GitGud: Refresh",
     category: "Git",
+    keybindName: "gitgud.refresh",
     enabled: (state) => !state.busy,
   },
 ]

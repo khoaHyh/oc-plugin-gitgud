@@ -30,6 +30,12 @@ export const commitMessageSystem = [
   "Use conventional commits",
 ].join("\n")
 
+export const commitMessageSystemWithInstructions = (instructions: string) => {
+  const trimmed = instructions.trim()
+  if (!trimmed) return commitMessageSystem
+  return [commitMessageSystem, "Additional user instructions:", trimmed].join("\n\n")
+}
+
 export const commitMessagePrompt = (stat: string, diff: string) => {
   return `Create a commit message for this staged diff.\n\nSTAT:\n${stat}\n\nDIFF:\n${diff}`
 }

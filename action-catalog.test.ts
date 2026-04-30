@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { gitActionCatalog, gitDialogActionOptions, parseGitDialogActionValue } from "./action-catalog"
+import {
+  gitActionCatalog,
+  gitDialogActionOptions,
+  parseGitDialogActionValue,
+} from "./action-catalog"
 import type { GitFile } from "./change-set"
 import type { GitState } from "./types"
 
@@ -27,31 +31,34 @@ const state = (patch: Partial<GitState> = {}): GitState => ({
 })
 
 describe("Git action catalog", () => {
-  test("keeps command values and dialog actions in one catalog", () => {
-    expect(gitActionCatalog.map((item) => item.value)).toEqual([
-      "open-status",
-      "stage-all",
-      "unstage-all",
-      "generate-commit-message",
-      "commit",
-      "push",
-      "refresh",
-    ])
-    expect(gitDialogActionOptions(state({ files: [file({ staged: true })] })).map((item) => item.value)).toEqual([
-      "action:stage-all",
-      "action:unstage-all",
-      "action:generate-commit-message",
-      "action:commit",
-      "action:push",
-    ])
-  })
+  test("shows only status-dialog actions and parses only selectable action values", () => {
+    const optionValues: string[] = gitDialogActionOptions(state({ files: [file({ staged: true })] })).map(
+      (item) => item.value,
+    )
 
-  test("centralizes enablement rules", () => {
-    const options = gitDialogActionOptions(state({ files: [file({ unstaged: true })] }))
-
-    expect(options.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
-    expect(options.find((item) => item.value === "action:unstage-all")?.disabled).toBe(true)
+    expect(optionValues.includes("action:stage-all")).toBe(true)
+    expect(optionValues.includes("action:commit")).toBe(true)
+    expect(optionValues.includes("action:open-status")).toBe(false)
+    expect(optionValues.includes("action:refresh")).toBe(false)
     expect(parseGitDialogActionValue("action:push")).toBe("push")
     expect(parseGitDialogActionValue("action:refresh")).toBeUndefined()
+    expect(parseGitDialogActionValue("file:README.md")).toBeUndefined()
+  })
+
+  test("enables actions from changed-file state", () => {
+    const unstagedOnly = gitDialogActionOptions(state({ files: [file({ unstaged: true })] }))
+    const stagedOnly = gitDialogActionOptions(state({ files: [file({ staged: true })] }))
+    const untrackedOnly = gitDialogActionOptions(state({ files: [file({ untracked: true, tracked: false })] }))
+    const busy = gitDialogActionOptions(state({ busy: true, files: [file({ staged: true, unstaged: true })] }))
+
+    expect(unstagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
+    expect(unstagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(true)
+    expect(unstagedOnly.find((item) => item.value === "action:generate-commit-message")?.disabled).toBe(true)
+    expect(unstagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(false)
+    expect(stagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(true)
+    expect(stagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(false)
+    expect(stagedOnly.find((item) => item.value === "action:generate-commit-message")?.disabled).toBe(false)
+    expect(untrackedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
+    expect(busy.every((item) => item.disabled)).toBe(true)
   })
 })

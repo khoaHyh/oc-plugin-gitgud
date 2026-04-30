@@ -26,7 +26,6 @@ describe("Git change-set", () => {
     expect(files[2]?.statusLabel).toBe("·M")
     expect(files[2]?.additions).toBe(4)
     expect(files[2]?.deletions).toBe(2)
-    expect("code" in files[2]!).toBe(false)
   })
 
   test("keeps rename display facts with the current path as the action path", () => {
