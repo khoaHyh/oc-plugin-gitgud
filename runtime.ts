@@ -19,13 +19,22 @@ export type GitProcessAdapter = Readonly<{
   unstageAll: () => Promise<GitResult>
   stagedDiff: () => Promise<GitResult>
   stagedStat: () => Promise<GitResult>
+  changedDiff: () => Promise<GitResult>
+  changedStat: () => Promise<GitResult>
   unpushedCommits: () => Promise<number>
   commit: (input: { message: string }) => Promise<GitResult>
   push: () => Promise<GitResult>
+  graphiteLogShort: () => Promise<GitResult>
+  graphiteCreate: (input: { branch: string }) => Promise<GitResult>
+  graphiteModify: (input: { message: string }) => Promise<GitResult>
+  graphiteSubmitStack: () => Promise<GitResult>
+  graphiteSync: () => Promise<GitResult>
+  graphiteUp: () => Promise<GitResult>
+  graphiteDown: () => Promise<GitResult>
 }>
 
 export type CommitAgentRequest = Readonly<{
-  agent: string
+  agent: string | undefined
   model: GitGudConfig["commitModel"]
   system: string
   prompt: string
@@ -35,7 +44,14 @@ export type GitGudHostAdapter = Readonly<{
   branch: () => string | undefined
   toast: (input: { variant: ToastVariant; message: string }) => void
   confirm: (input: { title: string; message: string; onConfirm: () => void }) => void
-  promptCommit: (input: { initial: string; busy: boolean; onConfirm: (value: string) => void }) => void
+  promptText: (input: {
+    title: string
+    placeholder: string
+    initial: string
+    busy: boolean
+    busyText: string
+    onConfirm: (value: string) => void
+  }) => void
   showStatus: (runtime: GitGudRuntime) => void
   clearDialog: () => void
   requestCommitMessage: (input: CommitAgentRequest) => Promise<readonly unknown[]>
@@ -83,14 +99,35 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
   }
 
+  const graphiteState = async () => {
+    if (config.workflow === "git")
+      return { workflow: "git", graphite: { available: false, summary: undefined } } as const
+
+    const result = await git.graphiteLogShort()
+    const available = result.code === 0
+    if (config.workflow === "graphite") {
+      return {
+        workflow: "graphite",
+        graphite: { available, summary: available ? result.stdout.trim() || undefined : undefined },
+      } as const
+    }
+
+    if (!available) return { workflow: "git", graphite: { available: false, summary: undefined } } as const
+    return {
+      workflow: "graphite",
+      graphite: { available: true, summary: result.stdout.trim() || undefined },
+    } as const
+  }
+
   const refresh: GitGudRuntime["refresh"] = async (input = {}) => {
     const patch = input.patch ?? {}
     if (input.loading ?? true) setState({ loading: true, error: undefined })
-    const result = await attempt(() => Promise.all([git.status(), git.unpushedCommits()]))
+    const result = await attempt(() => Promise.all([git.status(), git.unpushedCommits(), graphiteState()]))
     if (result.ok) {
-      const [files, unpushedCommits] = result.value
+      const [files, unpushedCommits, workflow] = result.value
       setState({
         ...patch,
+        ...workflow,
         files,
         unpushedCommits,
         branch: host.branch(),
@@ -105,6 +142,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         ...patch,
         files: [],
         unpushedCommits: 0,
+        graphite: { available: false, summary: undefined },
         error: result.error,
         loading: false,
       })
@@ -132,6 +170,34 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
   }
 
+  const validMessage = ({ message }: { message: string }) => {
+    const parts = commitMessageParts({ message })
+    if (parts.summary) return true
+    host.toast({ variant: "warning", message: "Commit message is required." })
+    return false
+  }
+
+  const promptMessage = ({
+    title,
+    initial,
+    busyText,
+    onConfirm,
+  }: {
+    title: string
+    initial: string
+    busyText: string
+    onConfirm: (value: string) => void
+  }) => {
+    host.promptText({
+      title,
+      placeholder: "commit message",
+      initial,
+      busy: state().busy,
+      busyText,
+      onConfirm,
+    })
+  }
+
   const showCommit: GitGudRuntime["showCommit"] = (initial = state().message) => {
     const staged = state().files.filter((file) => file.staged)
     const changed = state().files.length > 0
@@ -152,18 +218,21 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       return
     }
 
-    host.promptCommit({
+    promptMessage({
+      title: "Commit staged changes",
       initial,
-      busy: state().busy,
+      busyText: "committing",
       onConfirm: (value) => void commit({ message: value }),
     })
   }
 
-  const generateMessage: GitGudRuntime["generateMessage"] = async () => {
+  const generateMessageFromDiff = async ({ scope }: { scope: "staged" | "changed" }) => {
     if (state().busy) return
     setState({ busy: true })
     const result = await attempt(async () => {
-      const [stat, diff] = await Promise.all([git.stagedStat(), git.stagedDiff()])
+      const [stat, diff] = await Promise.all(
+        scope === "staged" ? [git.stagedStat(), git.stagedDiff()] : [git.changedStat(), git.changedDiff()],
+      )
       if (!diff.stdout.trim()) {
         return { kind: "empty" } as const
       }
@@ -181,15 +250,108 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     })
 
     if (result.ok && result.value.kind === "empty") {
-      host.toast({ variant: "warning", message: "No staged changes to describe." })
+      host.toast({
+        variant: "warning",
+        message: scope === "staged" ? "No staged changes to describe." : "No changes to describe.",
+      })
     } else if (result.ok) {
       setState({ message: result.value.message, busy: false })
-      host.toast({ variant: "success", message: "Generated commit message." })
-      showCommit(result.value.message)
     } else {
       host.toast({ variant: "error", message: result.error })
     }
     setState({ busy: false })
+    return result.ok && result.value.kind === "message" ? result.value.message : undefined
+  }
+
+  const generateMessage: GitGudRuntime["generateMessage"] = async () => {
+    const message = await generateMessageFromDiff({ scope: "staged" })
+    if (!message) return
+    setState({ message, busy: false })
+    host.toast({ variant: "success", message: "Generated commit message." })
+    showCommit(message)
+  }
+
+  const showGraphiteCreate = () => {
+    if (!state().graphite.available) {
+      host.toast({ variant: "warning", message: "Graphite CLI is not available for this repository." })
+      return
+    }
+    if (state().files.some((file) => file.staged)) {
+      host.toast({ variant: "warning", message: "Unstage files before creating a branch-only Graphite stack." })
+      return
+    }
+
+    host.promptText({
+      title: "Create Graphite branch",
+      placeholder: "branch name",
+      initial: "",
+      busy: state().busy,
+      busyText: "creating",
+      onConfirm: (rawBranch) => {
+        const branch = rawBranch.trim()
+        if (!branch) {
+          host.toast({ variant: "warning", message: "Branch name is required." })
+          return
+        }
+        void mutate({
+          label: `Created Graphite branch ${firstLine(branch)}.`,
+          task: () => git.graphiteCreate({ branch }),
+        }).then((ok) => {
+          if (ok) host.clearDialog()
+        })
+      },
+    })
+  }
+
+  const showGraphiteModify = () => {
+    if (!state().graphite.available) {
+      host.toast({ variant: "warning", message: "Graphite CLI is not available for this repository." })
+      return
+    }
+    const staged = state().files.filter((file) => file.staged)
+    const changed = state().files.length > 0
+    if (staged.length === 0 && changed && config.confirmStageAllOnCommit) {
+      host.confirm({
+        title: "Stage all changes?",
+        message: "There are no staged files. Stage all changes before modifying the current diff?",
+        onConfirm: () => {
+          void mutate({ label: "Staged all changes.", task: () => git.stageAll() }).then(() => showGraphiteModify())
+        },
+      })
+      return
+    }
+    if (staged.length === 0) {
+      host.toast({ variant: "warning", message: "No staged files to modify." })
+      return
+    }
+
+    void generateMessageFromDiff({ scope: "staged" }).then((message) => {
+      if (!message) return
+      promptMessage({
+        title: "Modify current diff",
+        initial: message,
+        busyText: "modifying",
+        onConfirm: (value) => {
+          if (!validMessage({ message: value })) return
+          void mutate({ label: "Modified current diff.", task: () => git.graphiteModify({ message: value }) }).then(
+            (ok) => {
+              if (ok) {
+                setState({ message: "" })
+                host.clearDialog()
+              }
+            },
+          )
+        },
+      })
+    })
+  }
+
+  const graphiteMutation = ({ label, task }: { label: string; task: () => Promise<GitResult> }) => {
+    if (!state().graphite.available) {
+      host.toast({ variant: "warning", message: "Graphite CLI is not available for this repository." })
+      return
+    }
+    void mutate({ label, task })
   }
 
   const push: GitGudRuntime["push"] = async () => {
@@ -225,6 +387,15 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (value === "unstage-all") return void runtime.unstageAll()
       if (value === "commit") return void runtime.generateMessage()
       if (value === "push") return void runtime.push()
+      if (value === "graphite-create") return showGraphiteCreate()
+      if (value === "graphite-modify") return showGraphiteModify()
+      if (value === "graphite-submit-stack") {
+        return graphiteMutation({ label: "Submitted stack.", task: () => git.graphiteSubmitStack() })
+      }
+      if (value === "graphite-sync") return graphiteMutation({ label: "Synced stack.", task: () => git.graphiteSync() })
+      if (value === "graphite-up") return graphiteMutation({ label: "Moved up stack.", task: () => git.graphiteUp() })
+      if (value === "graphite-down")
+        return graphiteMutation({ label: "Moved down stack.", task: () => git.graphiteDown() })
       if (value === "refresh") return void runtime.refresh()
     },
     runDialogAction(value) {

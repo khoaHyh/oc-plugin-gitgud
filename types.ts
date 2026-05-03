@@ -6,11 +6,20 @@ export type Api = Parameters<TuiPlugin>[0]
 export type GitState = Readonly<{
   loading: boolean
   busy: boolean
+  workflow: GitGudWorkflow
+  graphite: GitGudGraphiteState
   message: string
   files: ReadonlyArray<GitFile>
   unpushedCommits: number
   branch: string | undefined
   error: string | undefined
+}>
+
+export type GitGudWorkflow = "git" | "graphite"
+
+export type GitGudGraphiteState = Readonly<{
+  available: boolean
+  summary: string | undefined
 }>
 
 export type GitGudRefreshInput = Readonly<{

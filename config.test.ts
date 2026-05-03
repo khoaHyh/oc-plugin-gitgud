@@ -6,6 +6,7 @@ describe("GitGud config", () => {
     expect(
       normalizeConfig({
         enabled: false,
+        workflow: "graphite",
         replace_sidebar_files: true,
         confirm_push: false,
         confirm_stage_all_on_commit: false,
@@ -14,11 +15,13 @@ describe("GitGud config", () => {
         commit_system_instructions: "Prefer short commit bodies.",
         keybinds: {
           open_status: "leader x s",
+          graphite_submit_stack: "leader g s",
           push: false,
         },
       }),
     ).toEqual({
       enabled: false,
+      workflow: "graphite",
       replaceSidebarFiles: true,
       confirmPush: false,
       confirmStageAllOnCommit: false,
@@ -31,6 +34,7 @@ describe("GitGud config", () => {
       keybinds: {
         ...defaultConfig.keybinds,
         "gitgud.open_status": "leader x s",
+        "gitgud.graphite_submit_stack": "leader g s",
         "gitgud.push": "none",
       },
     })

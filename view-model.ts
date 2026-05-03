@@ -19,6 +19,7 @@ export type GitGudSidebarButton = Readonly<{
 export type GitGudSidebarViewModel = Readonly<{
   title: string
   summary: string
+  stackSummary: string | undefined
   error: string | undefined
   hasFiles: boolean
   buttons: ReadonlyArray<GitGudSidebarButton>
@@ -88,30 +89,59 @@ export const gitStatusFileOptionValue = (path: string): `file:${string}` => `fil
 export const createSidebarViewModel = ({ state }: { state: GitState }): GitGudSidebarViewModel => {
   const staged = state.files.filter((file) => file.staged)
   const unstaged = state.files.filter((file) => file.unstaged || file.untracked)
+  const stageButton = createStageButton({
+    stagedCount: staged.length,
+    unstagedCount: unstaged.length,
+    busy: state.busy,
+  })
+  const graphiteUnavailable = state.workflow === "graphite" && !state.graphite.available
 
   return {
     title: "GitGud",
     summary: `${unstaged.length} unstaged · ${staged.length} staged`,
+    stackSummary: state.workflow === "graphite" ? state.graphite.summary : undefined,
     error: state.error,
     hasFiles: state.files.length > 0,
-    buttons: [
-      { label: "open", action: "open-status", disabled: state.busy },
-      createStageButton({ stagedCount: staged.length, unstagedCount: unstaged.length, busy: state.busy }),
-      { label: "commit", action: "commit", disabled: state.busy || !hasStaged(state.files) },
-      { label: "push", action: "push", disabled: state.busy || state.unpushedCommits === 0 },
-    ],
+    buttons:
+      state.workflow === "graphite"
+        ? [
+            { label: "open", action: "open-status", disabled: state.busy },
+            stageButton,
+            {
+              label: "create",
+              action: "graphite-create",
+              disabled: state.busy || graphiteUnavailable || hasStaged(state.files),
+            },
+            {
+              label: "modify",
+              action: "graphite-modify",
+              disabled: state.busy || graphiteUnavailable || !hasStaged(state.files),
+            },
+            { label: "submit", action: "graphite-submit-stack", disabled: state.busy || graphiteUnavailable },
+          ]
+        : [
+            { label: "open", action: "open-status", disabled: state.busy },
+            stageButton,
+            { label: "commit", action: "commit", disabled: state.busy || !hasStaged(state.files) },
+            { label: "push", action: "push", disabled: state.busy || state.unpushedCommits === 0 },
+          ],
   }
 }
 
 export const createCommandViewModel = ({ state }: { state: GitState }): ReadonlyArray<GitGudCommandViewModel> => {
-  return gitActionCatalog.map((item) => ({
-    title: item.commandTitle,
-    value: gitCommandValue(item.value),
-    category: item.category,
-    keybindName: item.keybindName,
-    enabled: item.enabled(state),
-    action: item.value,
-  }))
+  return gitActionCatalog.flatMap((item) => {
+    if (!item.visible(state)) return []
+    return [
+      {
+        title: item.commandTitle,
+        value: gitCommandValue(item.value),
+        category: item.category,
+        keybindName: item.keybindName,
+        enabled: item.enabled(state),
+        action: item.value,
+      },
+    ]
+  })
 }
 
 export const createGitStatusDialogViewModel = ({ state }: { state: GitState }): GitStatusDialogViewModel => {
@@ -121,7 +151,7 @@ export const createGitStatusDialogViewModel = ({ state }: { state: GitState }): 
     busy: state.busy,
     options: [
       ...gitActionCatalog.flatMap<GitStatusActionOptionViewModel>((item) => {
-        if (!isGitDialogActionCatalogItem(item)) return []
+        if (!isGitDialogActionCatalogItem(item) || !item.visible(state)) return []
         return [
           {
             kind: "action",

@@ -2,14 +2,17 @@ import { defaultGitGudKeybinds, type GitActionKeybindName } from "./action-catal
 
 export type GitGudConfig = Readonly<{
   enabled: boolean
+  workflow: GitGudWorkflowConfig
   replaceSidebarFiles: boolean
   confirmPush: boolean
   confirmStageAllOnCommit: boolean
-  commitAgent: string
+  commitAgent: string | undefined
   commitModel: GitGudCommitModel | undefined
   commitSystemInstructions: string
   keybinds: Readonly<Partial<Record<GitActionKeybindName, string>>>
 }>
+
+export type GitGudWorkflowConfig = "auto" | "git" | "graphite"
 
 export type GitGudCommitModel = Readonly<{
   providerID: string
@@ -18,10 +21,11 @@ export type GitGudCommitModel = Readonly<{
 
 export const defaultConfig = {
   enabled: true,
+  workflow: "auto",
   replaceSidebarFiles: false,
   confirmPush: true,
   confirmStageAllOnCommit: true,
-  commitAgent: "build",
+  commitAgent: undefined,
   commitModel: undefined,
   commitSystemInstructions: "",
   keybinds: defaultGitGudKeybinds,
@@ -33,6 +37,12 @@ const keybindConfigEntries: ReadonlyArray<Readonly<{ key: string; name: GitActio
   { key: "unstage_all", name: "gitgud.unstage_all" },
   { key: "commit", name: "gitgud.commit" },
   { key: "push", name: "gitgud.push" },
+  { key: "graphite_create", name: "gitgud.graphite_create" },
+  { key: "graphite_modify", name: "gitgud.graphite_modify" },
+  { key: "graphite_submit_stack", name: "gitgud.graphite_submit_stack" },
+  { key: "graphite_sync", name: "gitgud.graphite_sync" },
+  { key: "graphite_up", name: "gitgud.graphite_up" },
+  { key: "graphite_down", name: "gitgud.graphite_down" },
   { key: "refresh", name: "gitgud.refresh" },
 ]
 
@@ -41,15 +51,16 @@ const rec = (value: unknown) => {
   return Object.fromEntries(Object.entries(value))
 }
 
-const pick = (value: unknown, fallback: string) => {
-  if (typeof value !== "string") return fallback
-  if (!value.trim()) return fallback
-  return value
-}
-
 const optionalString = (value: unknown) => {
   if (typeof value !== "string") return ""
   return value.trim()
+}
+
+const optionalNonEmptyString = (value: unknown) => {
+  if (typeof value !== "string") return
+  const trimmed = value.trim()
+  if (!trimmed) return
+  return trimmed
 }
 
 const model = (value: unknown): GitGudCommitModel | undefined => {
@@ -66,6 +77,11 @@ const model = (value: unknown): GitGudCommitModel | undefined => {
 const bool = (value: unknown, fallback: boolean) => {
   if (typeof value !== "boolean") return fallback
   return value
+}
+
+const workflow = (value: unknown): GitGudWorkflowConfig => {
+  if (value === "git" || value === "graphite" || value === "auto") return value
+  return defaultConfig.workflow
 }
 
 const normalizeKeybinds = (value: unknown) => {
@@ -89,10 +105,11 @@ export const normalizeConfig = (options: unknown): GitGudConfig => {
   const opts = rec(options)
   return {
     enabled: bool(opts?.enabled, defaultConfig.enabled),
+    workflow: workflow(opts?.workflow),
     replaceSidebarFiles: bool(opts?.replace_sidebar_files, defaultConfig.replaceSidebarFiles),
     confirmPush: bool(opts?.confirm_push, defaultConfig.confirmPush),
     confirmStageAllOnCommit: bool(opts?.confirm_stage_all_on_commit, defaultConfig.confirmStageAllOnCommit),
-    commitAgent: pick(opts?.commit_agent, defaultConfig.commitAgent),
+    commitAgent: optionalNonEmptyString(opts?.commit_agent),
     commitModel: model(opts?.commit_model),
     commitSystemInstructions: optionalString(opts?.commit_system_instructions),
     keybinds: normalizeKeybinds(opts?.keybinds),

@@ -35,14 +35,14 @@ const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => 
     confirm(input) {
       api.ui.dialog.replace(() => <api.ui.DialogConfirm {...input} />)
     },
-    promptCommit(input) {
+    promptText(input) {
       api.ui.dialog.replace(() => (
         <api.ui.DialogPrompt
-          title="Commit staged changes"
-          placeholder="commit message"
+          title={input.title}
+          placeholder={input.placeholder}
           value={input.initial}
           busy={input.busy}
-          busyText="committing"
+          busyText={input.busyText}
           onConfirm={input.onConfirm}
         />
       ))
@@ -99,7 +99,7 @@ const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => 
       const unwatchVcs = api.event.on("vcs.branch.updated", scheduleRefresh)
 
       api.command.register(() => commands({ runtime, keybinds }))
-      api.slots.register(slot({ api, runtime }))
+      api.slots.register(slot({ api, runtime, keybinds }))
       await runtime.refresh()
 
       api.lifecycle.onDispose(async () => {
@@ -169,9 +169,15 @@ const Button = (props: { label: string; onPress: () => void; disabled: boolean; 
   )
 }
 
-const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
+const Sidebar = (props: { api: Api; runtime: GitGudRuntime; keybinds: TuiKeybindSet }) => {
   const theme = createMemo(() => props.api.theme.current)
   const view = createMemo(() => props.runtime.view.sidebar())
+  const actionsButton = createMemo(() => view().buttons.find((button) => button.action === "open-status"))
+  const actionsKeybindHint = createMemo(() => {
+    const keybind = props.keybinds.get("gitgud.open_status")
+    if (keybind === "none") return
+    return keybind
+  })
 
   return (
     <box>
@@ -186,15 +192,21 @@ const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
       <Show when={view().hasFiles || !view().error}>
         <box gap={1}>
           <text fg={theme().textMuted}>{view().summary}</text>
+          <Show when={view().stackSummary}>
+            <text fg={theme().textMuted} wrapMode="word">
+              {view().stackSummary}
+            </text>
+          </Show>
           <box flexDirection="row" gap={1}>
-            {view().buttons.map((button) => (
-              <Button
-                api={props.api}
-                label={button.label}
-                disabled={button.disabled}
-                onPress={() => props.runtime.runAction(button.action)}
-              />
-            ))}
+            <Button
+              api={props.api}
+              label="Actions"
+              disabled={actionsButton()?.disabled ?? props.runtime.state().busy}
+              onPress={() => props.runtime.showStatus()}
+            />
+            <Show when={actionsKeybindHint()}>
+              <text fg={theme().textMuted}>{actionsKeybindHint()}</text>
+            </Show>
           </box>
         </box>
       </Show>
@@ -202,12 +214,20 @@ const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
   )
 }
 
-const slot = ({ api, runtime }: { api: Api; runtime: GitGudRuntime }): TuiSlotPlugin => {
+const slot = ({
+  api,
+  runtime,
+  keybinds,
+}: {
+  api: Api
+  runtime: GitGudRuntime
+  keybinds: TuiKeybindSet
+}): TuiSlotPlugin => {
   return {
     order: 500,
     slots: {
       sidebar_content() {
-        return <Sidebar api={api} runtime={runtime} />
+        return <Sidebar api={api} runtime={runtime} keybinds={keybinds} />
       },
     },
   }
@@ -221,6 +241,8 @@ const tui: TuiPlugin = async (api, options) => {
   const [state, setStateValue] = createSignal<GitState>({
     loading: true,
     busy: false,
+    workflow: optionsValue.workflow === "graphite" ? "graphite" : "git",
+    graphite: { available: false, summary: undefined },
     message: "",
     files: [],
     unpushedCommits: 0,

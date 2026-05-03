@@ -1,6 +1,18 @@
 import type { GitState } from "./types"
 
-export type GitActionValue = "open-status" | "stage-all" | "unstage-all" | "commit" | "push" | "refresh"
+export type GitActionValue =
+  | "open-status"
+  | "stage-all"
+  | "unstage-all"
+  | "commit"
+  | "push"
+  | "graphite-create"
+  | "graphite-modify"
+  | "graphite-submit-stack"
+  | "graphite-sync"
+  | "graphite-up"
+  | "graphite-down"
+  | "refresh"
 
 export type GitDialogActionValue = Exclude<GitActionValue, "open-status" | "refresh">
 export type GitDialogActionOptionValue = `action:${GitDialogActionValue}`
@@ -11,6 +23,12 @@ export type GitActionKeybindName =
   | "gitgud.unstage_all"
   | "gitgud.commit"
   | "gitgud.push"
+  | "gitgud.graphite_create"
+  | "gitgud.graphite_modify"
+  | "gitgud.graphite_submit_stack"
+  | "gitgud.graphite_sync"
+  | "gitgud.graphite_up"
+  | "gitgud.graphite_down"
   | "gitgud.refresh"
 
 type GitActionCatalogDialog =
@@ -25,6 +43,7 @@ type GitActionCatalogBase<TActionValue extends GitActionValue> = Readonly<{
   commandTitle: string
   category: "Git"
   keybindName: GitActionKeybindName
+  visible: (state: GitState) => boolean
   enabled: (state: GitState) => boolean
 }>
 
@@ -46,11 +65,20 @@ export const defaultGitGudKeybinds = {
   "gitgud.unstage_all": "<leader>U",
   "gitgud.commit": "<leader>C",
   "gitgud.push": "<leader>P",
+  "gitgud.graphite_create": "none",
+  "gitgud.graphite_modify": "none",
+  "gitgud.graphite_submit_stack": "none",
+  "gitgud.graphite_sync": "none",
+  "gitgud.graphite_up": "none",
+  "gitgud.graphite_down": "none",
   "gitgud.refresh": "f5",
 } as const satisfies Record<GitActionKeybindName, string>
 
 const hasStaged = (state: GitState) => state.files.some((file) => file.staged)
 const hasUnstaged = (state: GitState) => state.files.some((file) => file.unstaged || file.untracked)
+const hasChanged = (state: GitState) => state.files.length > 0
+const isGitWorkflow = (state: GitState) => state.workflow === "git"
+const isGraphiteWorkflow = (state: GitState) => state.workflow === "graphite"
 
 export const isGitDialogActionCatalogItem = (item: GitActionCatalogItem): item is GitDialogActionCatalogItem => {
   return item.dialog.kind === "select"
@@ -68,6 +96,7 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     dialog: { kind: "none" },
     category: "Git",
     keybindName: "gitgud.open_status",
+    visible: () => true,
     enabled: (state) => !state.busy,
   },
   {
@@ -76,6 +105,7 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     dialog: { kind: "select", title: "Stage all changes" },
     category: "Git",
     keybindName: "gitgud.stage_all",
+    visible: () => true,
     enabled: (state) => hasUnstaged(state) && !state.busy,
   },
   {
@@ -84,6 +114,7 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     dialog: { kind: "select", title: "Unstage all changes" },
     category: "Git",
     keybindName: "gitgud.unstage_all",
+    visible: () => true,
     enabled: (state) => hasStaged(state) && !state.busy,
   },
   {
@@ -92,7 +123,8 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     dialog: { kind: "select", title: "Commit staged changes" },
     category: "Git",
     keybindName: "gitgud.commit",
-    enabled: (state) => hasStaged(state) && !state.busy,
+    visible: isGitWorkflow,
+    enabled: (state) => isGitWorkflow(state) && hasStaged(state) && !state.busy,
   },
   {
     value: "push",
@@ -100,7 +132,62 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     dialog: { kind: "select", title: "Push current branch" },
     category: "Git",
     keybindName: "gitgud.push",
-    enabled: (state) => state.unpushedCommits > 0 && !state.busy,
+    visible: isGitWorkflow,
+    enabled: (state) => isGitWorkflow(state) && state.unpushedCommits > 0 && !state.busy,
+  },
+  {
+    value: "graphite-create",
+    commandTitle: "GitGud: Create Graphite branch",
+    dialog: { kind: "select", title: "Create Graphite branch" },
+    category: "Git",
+    keybindName: "gitgud.graphite_create",
+    visible: isGraphiteWorkflow,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && !hasStaged(state) && !state.busy,
+  },
+  {
+    value: "graphite-modify",
+    commandTitle: "GitGud: Modify current diff",
+    dialog: { kind: "select", title: "Modify current diff" },
+    category: "Git",
+    keybindName: "gitgud.graphite_modify",
+    visible: isGraphiteWorkflow,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && hasStaged(state) && !state.busy,
+  },
+  {
+    value: "graphite-submit-stack",
+    commandTitle: "GitGud: Submit stack",
+    dialog: { kind: "select", title: "Submit stack" },
+    category: "Git",
+    keybindName: "gitgud.graphite_submit_stack",
+    visible: isGraphiteWorkflow,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && !state.busy,
+  },
+  {
+    value: "graphite-sync",
+    commandTitle: "GitGud: Sync stack",
+    dialog: { kind: "select", title: "Sync stack" },
+    category: "Git",
+    keybindName: "gitgud.graphite_sync",
+    visible: isGraphiteWorkflow,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && !state.busy,
+  },
+  {
+    value: "graphite-up",
+    commandTitle: "GitGud: Move up stack",
+    dialog: { kind: "select", title: "Move up stack" },
+    category: "Git",
+    keybindName: "gitgud.graphite_up",
+    visible: isGraphiteWorkflow,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && !state.busy,
+  },
+  {
+    value: "graphite-down",
+    commandTitle: "GitGud: Move down stack",
+    dialog: { kind: "select", title: "Move down stack" },
+    category: "Git",
+    keybindName: "gitgud.graphite_down",
+    visible: isGraphiteWorkflow,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && !state.busy,
   },
   {
     value: "refresh",
@@ -108,6 +195,7 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     dialog: { kind: "none" },
     category: "Git",
     keybindName: "gitgud.refresh",
+    visible: () => true,
     enabled: (state) => !state.busy,
   },
 ]
@@ -121,7 +209,7 @@ export const gitDialogActionOptionValue = (value: GitDialogActionValue): GitDial
 export const gitDialogActionOptions = ({ state }: { state: GitState }) => {
   return gitActionCatalog.flatMap((item) => {
     const value = dialogActionValue({ item })
-    if (!value || item.dialog.kind === "none") return []
+    if (!value || item.dialog.kind === "none" || !item.visible(state)) return []
     return [
       {
         title: item.dialog.title,
