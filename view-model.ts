@@ -66,6 +66,22 @@ export type GitStatusDialogViewModel = {
 
 const hasStaged = (files: readonly GitFile[]) => files.some((file) => file.staged)
 
+const createStageButton = ({
+  stagedCount,
+  unstagedCount,
+  busy,
+}: {
+  stagedCount: number
+  unstagedCount: number
+  busy: boolean
+}): GitGudSidebarButton => {
+  if (stagedCount > 0 && unstagedCount === 0) {
+    return { label: "unstage", action: "unstage-all", disabled: busy }
+  }
+
+  return { label: "stage", action: "stage-all", disabled: busy || unstagedCount === 0 }
+}
+
 export const gitStatusFileOptionValue = (path: string): `file:${string}` => `file:${path}`
 
 export const createSidebarViewModel = (state: GitState): GitGudSidebarViewModel => {
@@ -79,9 +95,9 @@ export const createSidebarViewModel = (state: GitState): GitGudSidebarViewModel 
     hasFiles: state.files.length > 0,
     buttons: [
       { label: "open", action: "open-status", disabled: state.busy },
-      { label: "msg", action: "generate-commit-message", disabled: state.busy || !hasStaged(state.files) },
-      { label: "commit", action: "commit", disabled: state.busy },
-      { label: "push", action: "push", disabled: state.busy },
+      createStageButton({ stagedCount: staged.length, unstagedCount: unstaged.length, busy: state.busy }),
+      { label: "commit", action: "commit", disabled: state.busy || !hasStaged(state.files) },
+      { label: "push", action: "push", disabled: state.busy || state.unpushedCommits === 0 },
     ],
   }
 }

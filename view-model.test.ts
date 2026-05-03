@@ -23,6 +23,7 @@ const state = (patch: Partial<GitState> = {}): GitState => ({
   busy: false,
   message: "",
   files: [],
+  unpushedCommits: 0,
   ...patch,
 })
 
@@ -31,15 +32,29 @@ describe("GitGud view model", () => {
     const view = createSidebarViewModel(
       state({
         files: [file({ path: "staged.ts", staged: true }), file({ path: "worktree.ts", unstaged: true })],
+        unpushedCommits: 1,
       }),
     )
 
     expect(view.summary).toBe("1 unstaged · 1 staged")
     expect(view.hasFiles).toBe(true)
     expect(view.buttons.find((b) => b.label === "open")?.disabled).toBe(false)
-    expect(view.buttons.find((b) => b.label === "msg")?.disabled).toBe(false)
+    expect(view.buttons.find((b) => b.label === "stage")?.action).toBe("stage-all")
+    expect(view.buttons.find((b) => b.label === "stage")?.disabled).toBe(false)
     expect(view.buttons.find((b) => b.label === "commit")?.disabled).toBe(false)
     expect(view.buttons.find((b) => b.label === "push")?.disabled).toBe(false)
+  })
+
+  test("uses one stage button that flips to unstage when all changes are staged", () => {
+    const stagedOnly = createSidebarViewModel(state({ files: [file({ staged: true })] }))
+    const unstagedOnly = createSidebarViewModel(state({ files: [file({ unstaged: true })] }))
+    const noChanges = createSidebarViewModel(state())
+
+    expect(stagedOnly.buttons.find((b) => b.label === "unstage")?.action).toBe("unstage-all")
+    expect(stagedOnly.buttons.find((b) => b.label === "unstage")?.disabled).toBe(false)
+    expect(unstagedOnly.buttons.find((b) => b.label === "stage")?.action).toBe("stage-all")
+    expect(unstagedOnly.buttons.find((b) => b.label === "stage")?.disabled).toBe(false)
+    expect(noChanges.buttons.find((b) => b.label === "stage")?.disabled).toBe(true)
   })
 
   test("derives Git Status dialog actions and file options", () => {

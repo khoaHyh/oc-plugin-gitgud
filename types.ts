@@ -8,6 +8,7 @@ export type GitState = {
   busy: boolean
   message: string
   files: GitFile[]
+  unpushedCommits: number
   branch?: string
   error?: string
 }

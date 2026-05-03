@@ -1,13 +1,6 @@
 import type { GitState } from "./types"
 
-export type GitActionValue =
-  | "open-status"
-  | "stage-all"
-  | "unstage-all"
-  | "generate-commit-message"
-  | "commit"
-  | "push"
-  | "refresh"
+export type GitActionValue = "open-status" | "stage-all" | "unstage-all" | "commit" | "push" | "refresh"
 
 export type GitDialogActionValue = Exclude<GitActionValue, "open-status" | "refresh">
 export type GitDialogActionOptionValue = `action:${GitDialogActionValue}`
@@ -15,7 +8,6 @@ export type GitActionKeybindName =
   | "gitgud.open_status"
   | "gitgud.stage_all"
   | "gitgud.unstage_all"
-  | "gitgud.generate_commit_message"
   | "gitgud.commit"
   | "gitgud.push"
   | "gitgud.refresh"
@@ -33,7 +25,6 @@ export const defaultGitGudKeybinds = {
   "gitgud.open_status": "<leader>v",
   "gitgud.stage_all": "<leader>A",
   "gitgud.unstage_all": "<leader>U",
-  "gitgud.generate_commit_message": "<leader>p",
   "gitgud.commit": "<leader>C",
   "gitgud.push": "<leader>P",
   "gitgud.refresh": "f5",
@@ -73,20 +64,12 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     enabled: (state) => hasStaged(state) && !state.busy,
   },
   {
-    value: "generate-commit-message",
-    commandTitle: "GitGud: Generate commit message",
-    dialogTitle: "Generate commit message",
-    category: "Git",
-    keybindName: "gitgud.generate_commit_message",
-    enabled: (state) => hasStaged(state) && !state.busy,
-  },
-  {
     value: "commit",
     commandTitle: "GitGud: Commit",
     dialogTitle: "Commit staged changes",
     category: "Git",
     keybindName: "gitgud.commit",
-    enabled: (state) => state.files.length > 0 && !state.busy,
+    enabled: (state) => hasStaged(state) && !state.busy,
   },
   {
     value: "push",
@@ -94,7 +77,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
     dialogTitle: "Push current branch",
     category: "Git",
     keybindName: "gitgud.push",
-    enabled: (state) => !state.busy,
+    enabled: (state) => state.unpushedCommits > 0 && !state.busy,
   },
   {
     value: "refresh",

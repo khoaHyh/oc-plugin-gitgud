@@ -31,7 +31,6 @@ const keybindConfigKeys = {
   open_status: "gitgud.open_status",
   stage_all: "gitgud.stage_all",
   unstage_all: "gitgud.unstage_all",
-  generate_commit_message: "gitgud.generate_commit_message",
   commit: "gitgud.commit",
   push: "gitgud.push",
   refresh: "gitgud.refresh",

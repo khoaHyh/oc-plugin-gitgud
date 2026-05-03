@@ -19,6 +19,7 @@ export type GitProcessAdapter = {
   unstageAll: () => Promise<GitResult>
   stagedDiff: () => Promise<GitResult>
   stagedStat: () => Promise<GitResult>
+  unpushedCommits: () => Promise<number>
   commit: (message: string) => Promise<GitResult>
   push: () => Promise<GitResult>
 }
@@ -73,9 +74,11 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
   const refresh: GitGudRuntime["refresh"] = async (patch = {}, options) => {
     if (options?.loading ?? true) setState({ loading: true, error: undefined })
     try {
+      const [files, unpushedCommits] = await Promise.all([git.status(), git.unpushedCommits()])
       setState({
         ...patch,
-        files: await git.status(),
+        files,
+        unpushedCommits,
         branch: host.branch(),
         error: undefined,
         loading: false,
@@ -84,6 +87,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       setState({
         ...patch,
         files: [],
+        unpushedCommits: 0,
         error: err instanceof Error ? err.message : String(err),
         loading: false,
       })
@@ -174,6 +178,11 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
   }
 
   const push: GitGudRuntime["push"] = async () => {
+    if (state().unpushedCommits === 0) {
+      host.toast("warning", "No unpushed commits to push.")
+      return
+    }
+
     const run = () => mutate("Pushed current branch.", () => git.push())
     if (!config.confirmPush) {
       await run()
@@ -199,8 +208,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (value === "open-status") return runtime.showStatus()
       if (value === "stage-all") return void runtime.stageAll()
       if (value === "unstage-all") return void runtime.unstageAll()
-      if (value === "generate-commit-message") return void runtime.generateMessage()
-      if (value === "commit") return runtime.showCommit()
+      if (value === "commit") return void runtime.generateMessage()
       if (value === "push") return void runtime.push()
       if (value === "refresh") return void runtime.refresh()
     },

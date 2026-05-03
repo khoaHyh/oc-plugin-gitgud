@@ -40,7 +40,6 @@
           "open_status": "<leader>v",
           "stage_all": "<leader>A",
           "unstage_all": "<leader>U",
-          "generate_commit_message": "<leader>p",
           "commit": "<leader>C",
           "push": "<leader>P",
           "refresh": "f5"

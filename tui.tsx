@@ -213,6 +213,7 @@ const tui: TuiPlugin = async (api, options) => {
     busy: false,
     message: "",
     files: [],
+    unpushedCommits: 0,
     branch: api.state.vcs?.branch,
   })
   const setState = (patch: Partial<GitState>) => setStateValue((value) => ({ ...value, ...patch }))

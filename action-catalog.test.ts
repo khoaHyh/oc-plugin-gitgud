@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import {
-  gitActionCatalog,
-  gitDialogActionOptions,
-  parseGitDialogActionValue,
-} from "./action-catalog"
+import { gitActionCatalog, gitDialogActionOptions, parseGitDialogActionValue } from "./action-catalog"
 import type { GitFile } from "./change-set"
 import type { GitState } from "./types"
 
@@ -27,6 +23,7 @@ const state = (patch: Partial<GitState> = {}): GitState => ({
   busy: false,
   message: "",
   files: [],
+  unpushedCommits: 0,
   ...patch,
 })
 
@@ -53,11 +50,16 @@ describe("Git action catalog", () => {
 
     expect(unstagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
     expect(unstagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(true)
-    expect(unstagedOnly.find((item) => item.value === "action:generate-commit-message")?.disabled).toBe(true)
-    expect(unstagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(false)
+    expect(unstagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(true)
     expect(stagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(true)
     expect(stagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(false)
-    expect(stagedOnly.find((item) => item.value === "action:generate-commit-message")?.disabled).toBe(false)
+    expect(stagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(false)
+    expect(stagedOnly.find((item) => item.value === "action:push")?.disabled).toBe(true)
+    expect(
+      gitDialogActionOptions(state({ files: [file({ staged: true })], unpushedCommits: 1 })).find(
+        (item) => item.value === "action:push",
+      )?.disabled,
+    ).toBe(false)
     expect(untrackedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
     expect(busy.every((item) => item.disabled)).toBe(true)
   })

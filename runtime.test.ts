@@ -27,6 +27,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
     busy: false,
     message: "",
     files: [],
+    unpushedCommits: 0,
     branch: "main",
     ...patch,
   }
@@ -66,6 +67,10 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
     async stagedStat() {
       operations.push("staged-stat")
       return result(" file.ts | 1 +")
+    },
+    async unpushedCommits() {
+      operations.push("unpushed-commits")
+      return state.unpushedCommits
     },
     async commit(message) {
       operations.push(`commit:${message}`)
@@ -161,6 +166,27 @@ describe("GitGud runtime", () => {
 
     expect(harness.operations).toContain("stage-all")
     expect(harness.toasts).toEqual([["success", "Staged all changes."]])
+  })
+
+  test("commit action generates a commit message for staged changes", async () => {
+    const harness = createHarness({ files: [file({ staged: true })] })
+
+    harness.runtime.runAction("commit")
+    await tick()
+
+    expect(harness.operations).toContain("staged-stat")
+    expect(harness.operations).toContain("staged-diff")
+    expect(harness.operations).toContain("commit-agent:build:true")
+    expect(harness.commitPrompt).toBe("feat: test runtime")
+  })
+
+  test("push warns when there are no unpushed commits", async () => {
+    const harness = createHarness({ unpushedCommits: 0 })
+
+    await harness.runtime.push()
+
+    expect(harness.operations.includes("push")).toBe(false)
+    expect(harness.toasts).toEqual([["warning", "No unpushed commits to push."]])
   })
 
   test("generates a Commit message through the host adapter", async () => {

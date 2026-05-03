@@ -64,6 +64,15 @@ export const createGit = (api: Api) => {
     stagedStat() {
       return run(["diff", "--cached", "--stat"])
     },
+    async unpushedCommits() {
+      const upstream = await run(["rev-list", "--count", "@{upstream}..HEAD"], { allowFailure: true })
+      if (upstream.code === 0) return Number(upstream.stdout.trim()) || 0
+
+      const remote = await run(["rev-list", "--count", "HEAD", "--not", "--remotes"], { allowFailure: true })
+      if (remote.code === 0) return Number(remote.stdout.trim()) || 0
+
+      return 0
+    },
     commit(message: string) {
       return run(commitArgs(message))
     },
