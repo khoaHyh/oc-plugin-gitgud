@@ -99,7 +99,7 @@ const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => 
       const unwatchVcs = api.event.on("vcs.branch.updated", scheduleRefresh)
 
       api.command.register(() => commands({ runtime, keybinds }))
-      api.slots.register(slot({ api, runtime }))
+      api.slots.register(slot({ api, runtime, keybinds }))
       await runtime.refresh()
 
       api.lifecycle.onDispose(async () => {
@@ -169,9 +169,15 @@ const Button = (props: { label: string; onPress: () => void; disabled: boolean; 
   )
 }
 
-const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
+const Sidebar = (props: { api: Api; runtime: GitGudRuntime; keybinds: TuiKeybindSet }) => {
   const theme = createMemo(() => props.api.theme.current)
   const view = createMemo(() => props.runtime.view.sidebar())
+  const actionsButton = createMemo(() => view().buttons.find((button) => button.action === "open-status"))
+  const actionsKeybindHint = createMemo(() => {
+    const keybind = props.keybinds.get("gitgud.open_status")
+    if (keybind === "none") return
+    return keybind
+  })
 
   return (
     <box>
@@ -192,14 +198,15 @@ const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
             </text>
           </Show>
           <box flexDirection="row" gap={1}>
-            {view().buttons.map((button) => (
-              <Button
-                api={props.api}
-                label={button.label}
-                disabled={button.disabled}
-                onPress={() => props.runtime.runAction(button.action)}
-              />
-            ))}
+            <Button
+              api={props.api}
+              label="Actions"
+              disabled={actionsButton()?.disabled ?? props.runtime.state().busy}
+              onPress={() => props.runtime.showStatus()}
+            />
+            <Show when={actionsKeybindHint()}>
+              <text fg={theme().textMuted}>{actionsKeybindHint()}</text>
+            </Show>
           </box>
         </box>
       </Show>
@@ -207,12 +214,20 @@ const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
   )
 }
 
-const slot = ({ api, runtime }: { api: Api; runtime: GitGudRuntime }): TuiSlotPlugin => {
+const slot = ({
+  api,
+  runtime,
+  keybinds,
+}: {
+  api: Api
+  runtime: GitGudRuntime
+  keybinds: TuiKeybindSet
+}): TuiSlotPlugin => {
   return {
     order: 500,
     slots: {
       sidebar_content() {
-        return <Sidebar api={api} runtime={runtime} />
+        return <Sidebar api={api} runtime={runtime} keybinds={keybinds} />
       },
     },
   }
