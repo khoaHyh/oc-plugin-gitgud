@@ -23,6 +23,8 @@ const file = (patch: Partial<GitFile>): GitFile => ({
 const state = (patch: Partial<GitState> = {}): GitState => ({
   loading: false,
   busy: false,
+  workflow: "git",
+  graphite: { available: false, summary: undefined },
   message: "",
   files: [],
   unpushedCommits: 0,
@@ -87,5 +89,22 @@ describe("GitGud view model", () => {
       additions: 0,
       deletions: 0,
     })
+  })
+
+  test("derives Graphite sidebar actions and stack summary", () => {
+    const view = createSidebarViewModel({
+      state: state({
+        workflow: "graphite",
+        graphite: { available: true, summary: "◉ feature/current" },
+        files: [file({ staged: true })],
+      }),
+    })
+
+    expect(view.stackSummary).toBe("◉ feature/current")
+    expect(view.buttons.some((button) => button.label === "commit")).toBe(false)
+    expect(view.buttons.some((button) => button.label === "push")).toBe(false)
+    expect(view.buttons.find((button) => button.label === "create")?.action).toBe("graphite-create")
+    expect(view.buttons.find((button) => button.label === "modify")?.disabled).toBe(false)
+    expect(view.buttons.find((button) => button.label === "submit")?.action).toBe("graphite-submit-stack")
   })
 })

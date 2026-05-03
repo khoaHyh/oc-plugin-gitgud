@@ -35,14 +35,14 @@ const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => 
     confirm(input) {
       api.ui.dialog.replace(() => <api.ui.DialogConfirm {...input} />)
     },
-    promptCommit(input) {
+    promptText(input) {
       api.ui.dialog.replace(() => (
         <api.ui.DialogPrompt
-          title="Commit staged changes"
-          placeholder="commit message"
+          title={input.title}
+          placeholder={input.placeholder}
           value={input.initial}
           busy={input.busy}
-          busyText="committing"
+          busyText={input.busyText}
           onConfirm={input.onConfirm}
         />
       ))
@@ -186,6 +186,11 @@ const Sidebar = (props: { api: Api; runtime: GitGudRuntime }) => {
       <Show when={view().hasFiles || !view().error}>
         <box gap={1}>
           <text fg={theme().textMuted}>{view().summary}</text>
+          <Show when={view().stackSummary}>
+            <text fg={theme().textMuted} wrapMode="word">
+              {view().stackSummary}
+            </text>
+          </Show>
           <box flexDirection="row" gap={1}>
             {view().buttons.map((button) => (
               <Button
@@ -221,6 +226,8 @@ const tui: TuiPlugin = async (api, options) => {
   const [state, setStateValue] = createSignal<GitState>({
     loading: true,
     busy: false,
+    workflow: optionsValue.workflow === "graphite" ? "graphite" : "git",
+    graphite: { available: false, summary: undefined },
     message: "",
     files: [],
     unpushedCommits: 0,

@@ -10,6 +10,7 @@ export type GitResult = Readonly<{
 }>
 
 type GitRunInput = Readonly<{
+  bin?: "git" | "gt"
   args: ReadonlyArray<string>
   failure: "throw" | "allow"
 }>
@@ -17,17 +18,24 @@ type GitRunInput = Readonly<{
 export const createGit = ({ api }: { api: Api }) => {
   const cwd = () => api.state.path.worktree || api.state.path.directory || process.cwd()
 
-  const run = async ({ args, failure }: GitRunInput): Promise<GitResult> => {
-    const proc = Bun.spawn(["git", ...args], {
-      cwd: cwd(),
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    })
+  const run = async ({ bin = "git", args, failure }: GitRunInput): Promise<GitResult> => {
+    let proc: ReturnType<typeof Bun.spawn>
+    try {
+      proc = Bun.spawn([bin, ...args], {
+        cwd: cwd(),
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (failure === "allow") return { code: 1, stdout: "", stderr: message }
+      throw error
+    }
 
     const [code, stdout, stderr] = await Promise.all([
       proc.exited,
@@ -36,7 +44,7 @@ export const createGit = ({ api }: { api: Api }) => {
     ])
 
     if (code !== 0 && failure === "throw") {
-      throw new Error((stderr || stdout || `git ${args.join(" ")} failed`).trim())
+      throw new Error((stderr || stdout || `${bin} ${args.join(" ")} failed`).trim())
     }
 
     return { code, stdout, stderr }
@@ -71,6 +79,12 @@ export const createGit = ({ api }: { api: Api }) => {
     stagedStat() {
       return run({ args: ["diff", "--cached", "--stat"], failure: "throw" })
     },
+    changedDiff() {
+      return run({ args: ["diff", "HEAD", "--no-color", "--find-renames"], failure: "throw" })
+    },
+    changedStat() {
+      return run({ args: ["diff", "--stat", "HEAD"], failure: "throw" })
+    },
     async unpushedCommits() {
       const upstream = await run({ args: ["rev-list", "--count", "@{upstream}..HEAD"], failure: "allow" })
       if (upstream.code === 0) return Number(upstream.stdout.trim()) || 0
@@ -85,6 +99,27 @@ export const createGit = ({ api }: { api: Api }) => {
     },
     push() {
       return run({ args: ["push"], failure: "throw" })
+    },
+    graphiteLogShort() {
+      return run({ bin: "gt", args: ["log", "short"], failure: "allow" })
+    },
+    graphiteCreate({ branch }: { branch: string }) {
+      return run({ bin: "gt", args: ["create", branch, "--no-interactive"], failure: "throw" })
+    },
+    graphiteModify({ message }: { message: string }) {
+      return run({ bin: "gt", args: ["modify", "--commit", "--message", message], failure: "throw" })
+    },
+    graphiteSubmitStack() {
+      return run({ bin: "gt", args: ["submit", "--stack"], failure: "throw" })
+    },
+    graphiteSync() {
+      return run({ bin: "gt", args: ["sync"], failure: "throw" })
+    },
+    graphiteUp() {
+      return run({ bin: "gt", args: ["up"], failure: "throw" })
+    },
+    graphiteDown() {
+      return run({ bin: "gt", args: ["down"], failure: "throw" })
     },
   }
 }

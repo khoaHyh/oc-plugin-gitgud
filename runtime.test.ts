@@ -26,14 +26,20 @@ const result = (stdout = "") => ({ code: 0, stdout, stderr: "" })
 type HarnessInput = Readonly<{
   patch: Partial<GitState>
   config: GitGudConfig
+  graphiteLog: ReturnType<typeof result>
 }>
 
 const createHarness = (input: Partial<HarnessInput> = {}) => {
   const patch = input.patch ?? {}
   const config = input.config ?? defaultConfig
+  const graphiteLog =
+    input.graphiteLog ??
+    (config.workflow === "graphite" ? result("◉ main\n") : { code: 1, stdout: "", stderr: "not tracked" })
   let state: GitState = {
     loading: false,
     busy: false,
+    workflow: config.workflow === "graphite" ? "graphite" : "git",
+    graphite: { available: config.workflow === "graphite", summary: undefined },
     message: "",
     files: [],
     unpushedCommits: 0,
@@ -79,6 +85,15 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
       operations.push("staged-stat")
       return result(" file.ts | 1 +")
     },
+    async changedDiff() {
+      operations.push("changed-diff")
+      if (state.files.every((item) => item.untracked && !item.staged && !item.unstaged)) return result("")
+      return result("diff --git a/file.ts b/file.ts")
+    },
+    async changedStat() {
+      operations.push("changed-stat")
+      return result(" file.ts | 1 +")
+    },
     async unpushedCommits() {
       operations.push("unpushed-commits")
       return state.unpushedCommits
@@ -91,6 +106,34 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
       operations.push("push")
       return result()
     },
+    async graphiteLogShort() {
+      operations.push("gt-log-short")
+      return graphiteLog
+    },
+    async graphiteCreate({ branch }) {
+      operations.push(`gt-create:${branch}`)
+      return result()
+    },
+    async graphiteModify({ message }) {
+      operations.push(`gt-modify:${message}`)
+      return result()
+    },
+    async graphiteSubmitStack() {
+      operations.push("gt-submit-stack")
+      return result()
+    },
+    async graphiteSync() {
+      operations.push("gt-sync")
+      return result()
+    },
+    async graphiteUp() {
+      operations.push("gt-up")
+      return result()
+    },
+    async graphiteDown() {
+      operations.push("gt-down")
+      return result()
+    },
   }
 
   const host: GitGudHostAdapter = {
@@ -100,7 +143,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
       confirmations.push({ title: input.title, message: input.message })
       confirm = input.onConfirm
     },
-    promptCommit(input) {
+    promptText(input) {
       commitPrompt = input.initial
       commitPromptBusy = input.busy
       commitPromptConfirm = input.onConfirm
@@ -113,7 +156,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
     },
     async requestCommitMessage(input) {
       commitMessageRequest = input
-      operations.push(`commit-agent:${input.agent}:${input.prompt.includes("DIFF:")}`)
+      operations.push(`commit-agent:${input.agent ?? "default"}:${input.prompt.includes("DIFF:")}`)
       return [{ type: "text", text: "feat: test runtime" }]
     },
   }
@@ -189,7 +232,7 @@ describe("GitGud runtime", () => {
 
     expect(harness.operations).toContain("staged-stat")
     expect(harness.operations).toContain("staged-diff")
-    expect(harness.operations).toContain("commit-agent:build:true")
+    expect(harness.operations).toContain("commit-agent:default:true")
     expect(harness.commitPrompt).toBe("feat: test runtime")
   })
 
@@ -215,6 +258,28 @@ describe("GitGud runtime", () => {
     expect(harness.toasts).toEqual([["warning", "No unpushed commits to push."]])
   })
 
+  test("auto workflow falls back to Git when Graphite is unavailable", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ staged: true })] },
+      graphiteLog: { code: 1, stdout: "", stderr: "gt not found" },
+    })
+
+    await harness.runtime.refresh()
+
+    expect(harness.operations).toContain("gt-log-short")
+    expect(harness.state.workflow).toBe("git")
+    expect(harness.state.graphite.available).toBe(false)
+  })
+
+  test("auto workflow uses Graphite when stack information is available", async () => {
+    const harness = createHarness({ graphiteLog: result("◉ feature/current\n") })
+
+    await harness.runtime.refresh()
+
+    expect(harness.state.workflow).toBe("graphite")
+    expect(harness.state.graphite).toEqual({ available: true, summary: "◉ feature/current" })
+  })
+
   test("generates a Commit message through the host adapter", async () => {
     const harness = createHarness({ patch: { files: [file({ staged: true })] } })
 
@@ -222,7 +287,7 @@ describe("GitGud runtime", () => {
 
     expect(harness.operations).toContain("staged-stat")
     expect(harness.operations).toContain("staged-diff")
-    expect(harness.operations).toContain("commit-agent:build:true")
+    expect(harness.operations).toContain("commit-agent:default:true")
     expect(harness.state.message).toBe("feat: test runtime")
     expect(harness.commitPrompt).toBe("feat: test runtime")
     expect(harness.commitPromptBusy).toBe(false)
@@ -246,5 +311,82 @@ describe("GitGud runtime", () => {
     })
     expect(harness.commitMessageRequest?.system).toContain("Return only the commit message")
     expect(harness.commitMessageRequest?.system).toContain("Mention the ticket ID when one is present.")
+  })
+
+  test("Graphite create prompts for a branch and creates a branch-only stack", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ unstaged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("graphite-create")
+    harness.confirmCommit({ message: "feature/stacked-diff" })
+    await tick()
+
+    expect(harness.operations.includes("changed-stat")).toBe(false)
+    expect(harness.operations.includes("changed-diff")).toBe(false)
+    expect(harness.operations).toContain("gt-create:feature/stacked-diff")
+    expect(harness.operations).toContain("clear-dialog")
+  })
+
+  test("Graphite create does not commit untracked-only changes", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ untracked: true, tracked: false })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("graphite-create")
+    harness.confirmCommit({ message: "feature/add-file" })
+    await tick()
+
+    expect(harness.operations.includes("changed-stat")).toBe(false)
+    expect(harness.operations.includes("changed-diff")).toBe(false)
+    expect(harness.operations).toContain("gt-create:feature/add-file")
+  })
+
+  test("Graphite create refuses staged changes to avoid committing", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ staged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("graphite-create")
+
+    expect(harness.operations.includes("gt-create:feature/add-file")).toBe(false)
+    expect(harness.toasts).toEqual([["warning", "Unstage files before creating a branch-only Graphite stack."]])
+  })
+
+  test("Graphite modify generates a message and modifies the current diff", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ staged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("graphite-modify")
+    await tick()
+    harness.confirmCommit({ message: "fix: amend current diff" })
+    await tick()
+
+    expect(harness.operations).toContain("staged-stat")
+    expect(harness.operations).toContain("staged-diff")
+    expect(harness.operations).toContain("gt-modify:fix: amend current diff")
+  })
+
+  test("Graphite stack actions use canonical gt commands", async () => {
+    const harness = createHarness({ config: { ...defaultConfig, workflow: "graphite" } })
+
+    harness.runtime.runAction("graphite-submit-stack")
+    await tick()
+    harness.runtime.runAction("graphite-sync")
+    await tick()
+    harness.runtime.runAction("graphite-up")
+    await tick()
+    harness.runtime.runAction("graphite-down")
+    await tick()
+
+    expect(harness.operations).toContain("gt-submit-stack")
+    expect(harness.operations).toContain("gt-sync")
+    expect(harness.operations).toContain("gt-up")
+    expect(harness.operations).toContain("gt-down")
   })
 })

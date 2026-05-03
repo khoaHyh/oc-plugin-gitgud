@@ -30,10 +30,11 @@
       "import": "./tui.tsx",
       "config": {
         "enabled": true,
+        "workflow": "auto",
         "replace_sidebar_files": false,
         "confirm_push": true,
         "confirm_stage_all_on_commit": true,
-        "commit_agent": "build",
+        "commit_agent": "",
         "commit_model": "",
         "commit_system_instructions": "",
         "keybinds": {
@@ -42,6 +43,12 @@
           "unstage_all": "<leader>U",
           "commit": "<leader>C",
           "push": "<leader>P",
+          "graphite_create": "none",
+          "graphite_modify": "none",
+          "graphite_submit_stack": "none",
+          "graphite_sync": "none",
+          "graphite_up": "none",
+          "graphite_down": "none",
           "refresh": "f5"
         }
       }

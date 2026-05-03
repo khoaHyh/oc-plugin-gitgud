@@ -23,6 +23,8 @@ const file = (patch: Partial<GitFile>): GitFile => ({
 const state = (patch: Partial<GitState> = {}): GitState => ({
   loading: false,
   busy: false,
+  workflow: "git",
+  graphite: { available: false, summary: undefined },
   message: "",
   files: [],
   unpushedCommits: 0,
@@ -70,5 +72,21 @@ describe("Git action catalog", () => {
     ).toBe(false)
     expect(untrackedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
     expect(busy.every((item) => item.disabled)).toBe(true)
+  })
+
+  test("shows Graphite actions only in Graphite workflow", () => {
+    const options = gitDialogActionOptions({
+      state: state({
+        workflow: "graphite",
+        graphite: { available: true, summary: "◉ feature/current" },
+        files: [file({ unstaged: true })],
+      }),
+    })
+
+    expect(options.some((item) => item.value === "action:commit")).toBe(false)
+    expect(options.some((item) => item.value === "action:push")).toBe(false)
+    expect(options.find((item) => item.value === "action:graphite-create")?.disabled).toBe(false)
+    expect(options.find((item) => item.value === "action:graphite-modify")?.disabled).toBe(true)
+    expect(options.find((item) => item.value === "action:graphite-submit-stack")?.disabled).toBe(false)
   })
 })
