@@ -1,10 +1,24 @@
 # GitGud plugin for OpenCode
 
-Lightweight Git controls for the OpenCode TUI sidebar: review your working tree,
-stage and unstage files, generate commit messages with an LLM, commit, and push without leaving
+Lightweight Git and Graphite controls for the OpenCode TUI sidebar: review your working tree,
+stage and unstage files, generate commit messages with an LLM, commit, and submit/push without leaving
 OpenCode.
 
 Inspired by [lazygit](https://github.com/jesseduffield/lazygit).
+
+## Demo
+
+### Basic git actions (stage, commit, push)
+
+[Git workflow demo 1](assets/gitgud-demo.mov)
+
+### Staging, modifying, and submitting graphite stack
+
+[Graphite workflow demo 1](assets/graphite-gitgud-1.mp4)
+
+### Moving up and down the graphite stack
+
+[Graphite workflow demo 2](assets/graphite-gitgud-2.mp4)
 
 ## Installation
 
