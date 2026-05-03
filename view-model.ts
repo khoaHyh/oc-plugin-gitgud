@@ -7,14 +7,8 @@ import {
   type GitDialogActionOptionValue,
   type GitDialogActionValue,
 } from "./action-catalog"
-import type { GitFile, GitFileTone } from "./change-set"
+import type { GitFileTone } from "./change-set"
 import type { GitState } from "./types"
-
-export type GitGudSidebarButton = Readonly<{
-  label: string
-  action: GitActionValue
-  disabled: boolean
-}>
 
 export type GitGudSidebarViewModel = Readonly<{
   title: string
@@ -22,7 +16,6 @@ export type GitGudSidebarViewModel = Readonly<{
   stackSummary: string | undefined
   error: string | undefined
   hasFiles: boolean
-  buttons: ReadonlyArray<GitGudSidebarButton>
 }>
 
 export type GitGudCommandViewModel = Readonly<{
@@ -66,35 +59,11 @@ export type GitStatusDialogViewModel = Readonly<{
   options: ReadonlyArray<GitStatusOptionViewModel>
 }>
 
-const hasStaged = (files: readonly GitFile[]) => files.some((file) => file.staged)
-
-const createStageButton = ({
-  stagedCount,
-  unstagedCount,
-  busy,
-}: {
-  stagedCount: number
-  unstagedCount: number
-  busy: boolean
-}): GitGudSidebarButton => {
-  if (stagedCount > 0 && unstagedCount === 0) {
-    return { label: "unstage", action: "unstage-all", disabled: busy }
-  }
-
-  return { label: "stage", action: "stage-all", disabled: busy || unstagedCount === 0 }
-}
-
 export const gitStatusFileOptionValue = (path: string): `file:${string}` => `file:${path}`
 
 export const createSidebarViewModel = ({ state }: { state: GitState }): GitGudSidebarViewModel => {
   const staged = state.files.filter((file) => file.staged)
   const unstaged = state.files.filter((file) => file.unstaged || file.untracked)
-  const stageButton = createStageButton({
-    stagedCount: staged.length,
-    unstagedCount: unstaged.length,
-    busy: state.busy,
-  })
-  const graphiteUnavailable = state.workflow === "graphite" && !state.graphite.available
 
   return {
     title: "GitGud",
@@ -102,29 +71,6 @@ export const createSidebarViewModel = ({ state }: { state: GitState }): GitGudSi
     stackSummary: state.workflow === "graphite" ? state.graphite.summary : undefined,
     error: state.error,
     hasFiles: state.files.length > 0,
-    buttons:
-      state.workflow === "graphite"
-        ? [
-            { label: "open", action: "open-status", disabled: state.busy },
-            stageButton,
-            {
-              label: "create",
-              action: "graphite-create",
-              disabled: state.busy || graphiteUnavailable || hasStaged(state.files),
-            },
-            {
-              label: "modify",
-              action: "graphite-modify",
-              disabled: state.busy || graphiteUnavailable || !hasStaged(state.files),
-            },
-            { label: "submit", action: "graphite-submit-stack", disabled: state.busy || graphiteUnavailable },
-          ]
-        : [
-            { label: "open", action: "open-status", disabled: state.busy },
-            stageButton,
-            { label: "commit", action: "commit", disabled: state.busy || !hasStaged(state.files) },
-            { label: "push", action: "push", disabled: state.busy || state.unpushedCommits === 0 },
-          ],
   }
 }
 

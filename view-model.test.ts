@@ -34,7 +34,7 @@ const state = (patch: Partial<GitState> = {}): GitState => ({
 })
 
 describe("GitGud view model", () => {
-  test("derives Sidebar summary and button enablement", () => {
+  test("derives Sidebar summary", () => {
     const view = createSidebarViewModel({
       state: state({
         files: [file({ path: "staged.ts", staged: true }), file({ path: "worktree.ts", unstaged: true })],
@@ -44,23 +44,6 @@ describe("GitGud view model", () => {
 
     expect(view.summary).toBe("1 unstaged · 1 staged")
     expect(view.hasFiles).toBe(true)
-    expect(view.buttons.find((b) => b.label === "open")?.disabled).toBe(false)
-    expect(view.buttons.find((b) => b.label === "stage")?.action).toBe("stage-all")
-    expect(view.buttons.find((b) => b.label === "stage")?.disabled).toBe(false)
-    expect(view.buttons.find((b) => b.label === "commit")?.disabled).toBe(false)
-    expect(view.buttons.find((b) => b.label === "push")?.disabled).toBe(false)
-  })
-
-  test("uses one stage button that flips to unstage when all changes are staged", () => {
-    const stagedOnly = createSidebarViewModel({ state: state({ files: [file({ staged: true })] }) })
-    const unstagedOnly = createSidebarViewModel({ state: state({ files: [file({ unstaged: true })] }) })
-    const noChanges = createSidebarViewModel({ state: state() })
-
-    expect(stagedOnly.buttons.find((b) => b.label === "unstage")?.action).toBe("unstage-all")
-    expect(stagedOnly.buttons.find((b) => b.label === "unstage")?.disabled).toBe(false)
-    expect(unstagedOnly.buttons.find((b) => b.label === "stage")?.action).toBe("stage-all")
-    expect(unstagedOnly.buttons.find((b) => b.label === "stage")?.disabled).toBe(false)
-    expect(noChanges.buttons.find((b) => b.label === "stage")?.disabled).toBe(true)
   })
 
   test("derives Git Status dialog actions and file options", () => {
@@ -91,7 +74,7 @@ describe("GitGud view model", () => {
     })
   })
 
-  test("derives Graphite sidebar actions and stack summary", () => {
+  test("derives Graphite stack summary", () => {
     const view = createSidebarViewModel({
       state: state({
         workflow: "graphite",
@@ -101,10 +84,5 @@ describe("GitGud view model", () => {
     })
 
     expect(view.stackSummary).toBe("◉ feature/current")
-    expect(view.buttons.some((button) => button.label === "commit")).toBe(false)
-    expect(view.buttons.some((button) => button.label === "push")).toBe(false)
-    expect(view.buttons.find((button) => button.label === "create")?.action).toBe("graphite-create")
-    expect(view.buttons.find((button) => button.label === "modify")?.disabled).toBe(false)
-    expect(view.buttons.find((button) => button.label === "submit")?.action).toBe("graphite-submit-stack")
   })
 })
