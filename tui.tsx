@@ -172,7 +172,6 @@ const Button = (props: { label: string; onPress: () => void; disabled: boolean; 
 const Sidebar = (props: { api: Api; runtime: GitGudRuntime; keybinds: TuiKeybindSet }) => {
   const theme = createMemo(() => props.api.theme.current)
   const view = createMemo(() => props.runtime.view.sidebar())
-  const actionsButton = createMemo(() => view().buttons.find((button) => button.action === "open-status"))
   const actionsKeybindHint = createMemo(() => {
     const keybind = props.keybinds.get("gitgud.open_status")
     if (keybind === "none") return
@@ -201,7 +200,7 @@ const Sidebar = (props: { api: Api; runtime: GitGudRuntime; keybinds: TuiKeybind
             <Button
               api={props.api}
               label="Actions"
-              disabled={actionsButton()?.disabled ?? props.runtime.state().busy}
+              disabled={props.runtime.state().busy}
               onPress={() => props.runtime.showStatus()}
             />
             <Show when={actionsKeybindHint()}>
