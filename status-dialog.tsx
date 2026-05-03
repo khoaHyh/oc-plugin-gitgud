@@ -19,7 +19,7 @@ type FileOption = Readonly<{
   fg: ThemeColor
   footer: JSX.Element
   category: "Files"
-  gutter: JSX.Element
+  gutter: () => JSX.Element
 }>
 
 const toneColor = ({ theme, tone }: { theme: Theme; tone: GitFileTone }) => {
@@ -83,7 +83,7 @@ export const GitStatusDialog = (props: { api: Api; runtime: GitGudRuntime }) => 
       fg,
       footer: <FileFooter api={props.api} file={() => fileMap().get(file.path)} />,
       category: "Files",
-      gutter: <FileStatus api={props.api} file={() => fileMap().get(file.path)} />,
+      gutter: () => <FileStatus api={props.api} file={() => fileMap().get(file.path)} />,
     }
     fileOptionCache.set(file.path, option)
     return option
