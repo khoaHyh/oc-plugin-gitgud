@@ -10,15 +10,15 @@ Inspired by [lazygit](https://github.com/jesseduffield/lazygit).
 
 ### Basic git actions (stage, commit, push)
 
-[Git workflow demo 1](assets/gitgud-demo.mov)
+![Git workflow demo 1](assets/gitgud-demo.mov)
 
 ### Staging, modifying, and submitting graphite stack
 
-[Graphite workflow demo 1](assets/graphite-gitgud-1.mp4)
+![Graphite workflow demo 1](assets/graphite-gitgud-1.mp4)
 
 ### Moving up and down the graphite stack
 
-[Graphite workflow demo 2](assets/graphite-gitgud-2.mp4)
+![Graphite workflow demo 2](assets/graphite-gitgud-2.mp4)
 
 ## Installation
 
