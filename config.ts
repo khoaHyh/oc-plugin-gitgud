@@ -1,20 +1,20 @@
 import { defaultGitGudKeybinds, type GitActionKeybindName } from "./action-catalog"
 
-export type GitGudConfig = {
+export type GitGudConfig = Readonly<{
   enabled: boolean
   replaceSidebarFiles: boolean
   confirmPush: boolean
   confirmStageAllOnCommit: boolean
   commitAgent: string
-  commitModel?: GitGudCommitModel
+  commitModel: GitGudCommitModel | undefined
   commitSystemInstructions: string
-  keybinds: Partial<Record<GitActionKeybindName, string>>
-}
+  keybinds: Readonly<Partial<Record<GitActionKeybindName, string>>>
+}>
 
-export type GitGudCommitModel = {
+export type GitGudCommitModel = Readonly<{
   providerID: string
   modelID: string
-}
+}>
 
 export const defaultConfig = {
   enabled: true,
@@ -25,16 +25,16 @@ export const defaultConfig = {
   commitModel: undefined,
   commitSystemInstructions: "",
   keybinds: defaultGitGudKeybinds,
-} satisfies GitGudConfig
+} as const satisfies GitGudConfig
 
-const keybindConfigKeys = {
-  open_status: "gitgud.open_status",
-  stage_all: "gitgud.stage_all",
-  unstage_all: "gitgud.unstage_all",
-  commit: "gitgud.commit",
-  push: "gitgud.push",
-  refresh: "gitgud.refresh",
-} satisfies Record<string, GitActionKeybindName>
+const keybindConfigEntries: ReadonlyArray<Readonly<{ key: string; name: GitActionKeybindName }>> = [
+  { key: "open_status", name: "gitgud.open_status" },
+  { key: "stage_all", name: "gitgud.stage_all" },
+  { key: "unstage_all", name: "gitgud.unstage_all" },
+  { key: "commit", name: "gitgud.commit" },
+  { key: "push", name: "gitgud.push" },
+  { key: "refresh", name: "gitgud.refresh" },
+]
 
 const rec = (value: unknown) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return
@@ -72,8 +72,8 @@ const normalizeKeybinds = (value: unknown) => {
   const opts = rec(value)
   if (!opts) return defaultConfig.keybinds
 
-  const keybinds = { ...defaultConfig.keybinds }
-  for (const [key, name] of Object.entries(keybindConfigKeys) as [string, GitActionKeybindName][]) {
+  const keybinds: Partial<Record<GitActionKeybindName, string>> = { ...defaultConfig.keybinds }
+  for (const { key, name } of keybindConfigEntries) {
     if (!Object.hasOwn(opts, key)) continue
     const raw = opts[key]
     if (raw === false || raw === null || raw === undefined) {

@@ -1,10 +1,10 @@
 export type GitFileTone = "text" | "muted" | "success" | "warning"
 
-export type GitFile = {
+export type GitFile = Readonly<{
   path: string
-  previousPath?: string
+  previousPath: string | undefined
   title: string
-  description?: string
+  description: string | undefined
   statusLabel: string
   titleTone: GitFileTone
   statusTone: GitFileTone
@@ -14,31 +14,31 @@ export type GitFile = {
   tracked: boolean
   additions: number
   deletions: number
-}
+}>
 
-type GitStat = {
+type GitStat = Readonly<{
   additions: number
   deletions: number
-}
+}>
 
 export const firstLine = (value: string) => {
   if (!value.includes("\n")) return value
   return value.slice(0, value.indexOf("\n"))
 }
 
-const statusChars = (code: string) => {
+const statusChars = ({ code }: { code: string }): ReadonlyArray<string> => {
   if (code === "??") return ["?", "?"]
   return [code[0] || " ", code[1] || " "]
 }
 
-const statusLabel = (code: string) => {
+const statusLabel = ({ code }: { code: string }) => {
   if (code === "??") return "??"
-  return statusChars(code)
+  return statusChars({ code })
     .map((char) => (char === " " ? "·" : char))
     .join("")
 }
 
-const titleTone = (staged: boolean, unstaged: boolean): GitFileTone => {
+const titleTone = ({ staged, unstaged }: { staged: boolean; unstaged: boolean }): GitFileTone => {
   if (staged && !unstaged) return "success"
   if (staged && unstaged) return "warning"
   return "text"
@@ -59,7 +59,7 @@ const statusTone = ({
   return "muted"
 }
 
-export const parseGitNumstat = (stdout: string) => {
+export const parseGitNumstat = ({ stdout }: { stdout: string }) => {
   return new Map<string, GitStat>(
     stdout
       .split("\0")
@@ -75,8 +75,14 @@ export const parseGitNumstat = (stdout: string) => {
   )
 }
 
-export const createGitChangeSet = (statusOutput: string, numstatOutput: string): GitFile[] => {
-  const stats = parseGitNumstat(numstatOutput)
+export const createGitChangeSet = ({
+  statusOutput,
+  numstatOutput,
+}: {
+  statusOutput: string
+  numstatOutput: string
+}): ReadonlyArray<GitFile> => {
+  const stats = parseGitNumstat({ stdout: numstatOutput })
   const lines = statusOutput.split("\0")
   const files: GitFile[] = []
 
@@ -97,8 +103,8 @@ export const createGitChangeSet = (statusOutput: string, numstatOutput: string):
       previousPath,
       title: previousPath ? `${previousPath} -> ${path}` : path,
       description: previousPath ? firstLine(path) : undefined,
-      statusLabel: statusLabel(code),
-      titleTone: titleTone(staged, unstaged),
+      statusLabel: statusLabel({ code }),
+      titleTone: titleTone({ staged, unstaged }),
       statusTone: statusTone({ untracked, staged, unstaged }),
       staged,
       unstaged,

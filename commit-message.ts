@@ -1,14 +1,14 @@
-export type CommitMessageParts = {
+export type CommitMessageParts = Readonly<{
   summary: string
   description: string
-}
+}>
 
-type TextPart = {
+type TextPart = Readonly<{
   type: "text"
   text: string
-}
+}>
 
-export const commitMessageParts = (message: string): CommitMessageParts => {
+export const commitMessageParts = ({ message }: { message: string }): CommitMessageParts => {
   const lines = message.replaceAll("\r\n", "\n").trim().split("\n")
   return {
     summary: lines[0]?.trim() ?? "",
@@ -16,8 +16,8 @@ export const commitMessageParts = (message: string): CommitMessageParts => {
   }
 }
 
-export const commitArgs = (message: string) => {
-  const parts = commitMessageParts(message)
+export const commitArgs = ({ message }: { message: string }) => {
+  const parts = commitMessageParts({ message })
   const args = ["commit", "-m", parts.summary]
   if (parts.description) args.push("-m", parts.description)
   return args
@@ -30,13 +30,13 @@ export const commitMessageSystem = [
   "Use conventional commits",
 ].join("\n")
 
-export const commitMessageSystemWithInstructions = (instructions: string) => {
+export const commitMessageSystemWithInstructions = ({ instructions }: { instructions: string }) => {
   const trimmed = instructions.trim()
   if (!trimmed) return commitMessageSystem
   return [commitMessageSystem, "Additional user instructions:", trimmed].join("\n\n")
 }
 
-export const commitMessagePrompt = (stat: string, diff: string) => {
+export const commitMessagePrompt = ({ stat, diff }: { stat: string; diff: string }) => {
   return `Create a commit message for this staged diff.\n\nSTAT:\n${stat}\n\nDIFF:\n${diff}`
 }
 
@@ -51,7 +51,7 @@ const isTextPart = (part: unknown): part is TextPart => {
   )
 }
 
-export const textParts = (parts: readonly unknown[]) => {
+export const textParts = ({ parts }: { parts: readonly unknown[] }) => {
   return parts
     .filter(isTextPart)
     .map((part) => part.text)

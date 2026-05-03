@@ -5,7 +5,9 @@ import { createGitStatusDialogViewModel, createSidebarViewModel } from "./view-m
 
 const file = (patch: Partial<GitFile>): GitFile => ({
   path: "file.ts",
+  previousPath: undefined,
   title: "file.ts",
+  description: undefined,
   statusLabel: "·M",
   titleTone: "text",
   statusTone: "muted",
@@ -24,17 +26,19 @@ const state = (patch: Partial<GitState> = {}): GitState => ({
   message: "",
   files: [],
   unpushedCommits: 0,
+  branch: undefined,
+  error: undefined,
   ...patch,
 })
 
 describe("GitGud view model", () => {
   test("derives Sidebar summary and button enablement", () => {
-    const view = createSidebarViewModel(
-      state({
+    const view = createSidebarViewModel({
+      state: state({
         files: [file({ path: "staged.ts", staged: true }), file({ path: "worktree.ts", unstaged: true })],
         unpushedCommits: 1,
       }),
-    )
+    })
 
     expect(view.summary).toBe("1 unstaged · 1 staged")
     expect(view.hasFiles).toBe(true)
@@ -46,9 +50,9 @@ describe("GitGud view model", () => {
   })
 
   test("uses one stage button that flips to unstage when all changes are staged", () => {
-    const stagedOnly = createSidebarViewModel(state({ files: [file({ staged: true })] }))
-    const unstagedOnly = createSidebarViewModel(state({ files: [file({ unstaged: true })] }))
-    const noChanges = createSidebarViewModel(state())
+    const stagedOnly = createSidebarViewModel({ state: state({ files: [file({ staged: true })] }) })
+    const unstagedOnly = createSidebarViewModel({ state: state({ files: [file({ unstaged: true })] }) })
+    const noChanges = createSidebarViewModel({ state: state() })
 
     expect(stagedOnly.buttons.find((b) => b.label === "unstage")?.action).toBe("unstage-all")
     expect(stagedOnly.buttons.find((b) => b.label === "unstage")?.disabled).toBe(false)
@@ -58,7 +62,9 @@ describe("GitGud view model", () => {
   })
 
   test("derives Git Status dialog actions and file options", () => {
-    const view = createGitStatusDialogViewModel(state({ files: [file({ path: "worktree.ts", unstaged: true })] }))
+    const view = createGitStatusDialogViewModel({
+      state: state({ files: [file({ path: "worktree.ts", unstaged: true })] }),
+    })
 
     expect(view.title).toBe("Git Status")
 

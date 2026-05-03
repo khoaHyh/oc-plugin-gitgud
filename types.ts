@@ -3,18 +3,23 @@ import type { GitFile } from "./change-set"
 
 export type Api = Parameters<TuiPlugin>[0]
 
-export type GitState = {
+export type GitState = Readonly<{
   loading: boolean
   busy: boolean
   message: string
-  files: GitFile[]
+  files: ReadonlyArray<GitFile>
   unpushedCommits: number
-  branch?: string
-  error?: string
-}
+  branch: string | undefined
+  error: string | undefined
+}>
 
-export type GitGudActions = {
-  refresh: (patch?: Partial<GitState>, options?: { loading?: boolean }) => Promise<void>
+export type GitGudRefreshInput = Readonly<{
+  patch: Partial<GitState>
+  loading: boolean
+}>
+
+export type GitGudActions = Readonly<{
+  refresh: (input?: Partial<GitGudRefreshInput>) => Promise<void>
   stageFile: (file: GitFile) => Promise<boolean>
   stageAll: () => Promise<boolean>
   unstageFile: (file: GitFile) => Promise<boolean>
@@ -23,6 +28,6 @@ export type GitGudActions = {
   showCommit: (initial?: string) => void
   push: () => Promise<void>
   showStatus: () => void
-}
+}>
 
 export type ToastVariant = "info" | "success" | "warning" | "error"

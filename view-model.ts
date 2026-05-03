@@ -2,6 +2,7 @@ import {
   gitActionCatalog,
   gitCommandValue,
   gitDialogActionOptionValue,
+  isGitDialogActionCatalogItem,
   type GitActionValue,
   type GitDialogActionOptionValue,
   type GitDialogActionValue,
@@ -9,60 +10,60 @@ import {
 import type { GitFile, GitFileTone } from "./change-set"
 import type { GitState } from "./types"
 
-export type GitGudSidebarButton = {
+export type GitGudSidebarButton = Readonly<{
   label: string
   action: GitActionValue
   disabled: boolean
-}
+}>
 
-export type GitGudSidebarViewModel = {
+export type GitGudSidebarViewModel = Readonly<{
   title: string
   summary: string
-  error?: string
+  error: string | undefined
   hasFiles: boolean
-  buttons: GitGudSidebarButton[]
-}
+  buttons: ReadonlyArray<GitGudSidebarButton>
+}>
 
-export type GitGudCommandViewModel = {
+export type GitGudCommandViewModel = Readonly<{
   title: string
   value: string
   category: "Git"
   keybindName: string
   enabled: boolean
   action: GitActionValue
-}
+}>
 
-export type GitStatusActionOptionViewModel = {
+export type GitStatusActionOptionViewModel = Readonly<{
   kind: "action"
   title: string
   value: GitDialogActionOptionValue
   category: "Actions"
   disabled: boolean
   action: GitDialogActionValue
-}
+}>
 
-export type GitStatusFileOptionViewModel = {
+export type GitStatusFileOptionViewModel = Readonly<{
   kind: "file"
   path: string
   title: string
   value: `file:${string}`
-  description?: string
+  description: string | undefined
   category: "Files"
   titleTone: GitFileTone
   statusTone: GitFileTone
   statusLabel: string
   additions: number
   deletions: number
-}
+}>
 
 export type GitStatusOptionViewModel = GitStatusActionOptionViewModel | GitStatusFileOptionViewModel
 
-export type GitStatusDialogViewModel = {
+export type GitStatusDialogViewModel = Readonly<{
   title: string
   placeholder: string
   busy: boolean
-  options: GitStatusOptionViewModel[]
-}
+  options: ReadonlyArray<GitStatusOptionViewModel>
+}>
 
 const hasStaged = (files: readonly GitFile[]) => files.some((file) => file.staged)
 
@@ -84,7 +85,7 @@ const createStageButton = ({
 
 export const gitStatusFileOptionValue = (path: string): `file:${string}` => `file:${path}`
 
-export const createSidebarViewModel = (state: GitState): GitGudSidebarViewModel => {
+export const createSidebarViewModel = ({ state }: { state: GitState }): GitGudSidebarViewModel => {
   const staged = state.files.filter((file) => file.staged)
   const unstaged = state.files.filter((file) => file.unstaged || file.untracked)
 
@@ -102,7 +103,7 @@ export const createSidebarViewModel = (state: GitState): GitGudSidebarViewModel 
   }
 }
 
-export const createCommandViewModel = (state: GitState): GitGudCommandViewModel[] => {
+export const createCommandViewModel = ({ state }: { state: GitState }): ReadonlyArray<GitGudCommandViewModel> => {
   return gitActionCatalog.map((item) => ({
     title: item.commandTitle,
     value: gitCommandValue(item.value),
@@ -113,19 +114,18 @@ export const createCommandViewModel = (state: GitState): GitGudCommandViewModel[
   }))
 }
 
-export const createGitStatusDialogViewModel = (state: GitState): GitStatusDialogViewModel => {
+export const createGitStatusDialogViewModel = ({ state }: { state: GitState }): GitStatusDialogViewModel => {
   return {
     title: "Git Status",
     placeholder: "Search changed files",
     busy: state.busy,
     options: [
       ...gitActionCatalog.flatMap<GitStatusActionOptionViewModel>((item) => {
-        if (!item.dialogTitle) return []
-        if (item.value === "open-status" || item.value === "refresh") return []
+        if (!isGitDialogActionCatalogItem(item)) return []
         return [
           {
             kind: "action",
-            title: item.dialogTitle,
+            title: item.dialog.title,
             value: gitDialogActionOptionValue(item.value),
             category: "Actions",
             disabled: !item.enabled(state),

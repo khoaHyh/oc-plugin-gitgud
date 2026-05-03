@@ -14,12 +14,13 @@ export type { GitGudRuntime }
 export type { GitFile }
 export type { GitGudRuntime as GitGudActions }
 
-type OpenCodeGitGudHostAdapter = GitGudHostAdapter & {
-  install: (runtime: GitGudRuntime, keybinds: TuiKeybindSet, options: GitGudConfig) => Promise<void>
-}
+type OpenCodeGitGudHostAdapter = GitGudHostAdapter &
+  Readonly<{
+    install: (input: { runtime: GitGudRuntime; keybinds: TuiKeybindSet; options: GitGudConfig }) => Promise<void>
+  }>
 
-const createHostAdapter = (api: Api): OpenCodeGitGudHostAdapter => {
-  const responseErrorMessage = (err: unknown, fallback: string) => {
+const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => {
+  const responseErrorMessage = ({ err, fallback }: { err: unknown; fallback: string }) => {
     if (err && typeof err === "object" && "message" in err && typeof err.message === "string") return err.message
     if (err && typeof err === "object" && "data" in err) {
       const data = err.data
@@ -30,7 +31,7 @@ const createHostAdapter = (api: Api): OpenCodeGitGudHostAdapter => {
 
   return {
     branch: () => api.state.vcs?.branch,
-    toast: (variant, message) => api.ui.toast({ variant, message }),
+    toast: ({ variant, message }) => api.ui.toast({ variant, message }),
     confirm(input) {
       api.ui.dialog.replace(() => <api.ui.DialogConfirm {...input} />)
     },
@@ -54,23 +55,32 @@ const createHostAdapter = (api: Api): OpenCodeGitGudHostAdapter => {
     async requestCommitMessage(input) {
       let sessionID = ""
       const session = await api.client.session.create({ title: "GitGud commit message" })
-      if (session.error) throw new Error(responseErrorMessage(session.error, "Failed to create commit message session"))
+      if (session.error) {
+        throw new Error(
+          responseErrorMessage({ err: session.error, fallback: "Failed to create commit message session" }),
+        )
+      }
       sessionID = session.data.id
-      try {
-        const response = await api.client.session.prompt({
+      const response = await api.client.session
+        .prompt({
           sessionID,
           agent: input.agent,
           model: input.model,
           system: input.system,
           parts: [{ type: "text", text: input.prompt }],
         })
-        if (response.error) throw new Error(responseErrorMessage(response.error, "Failed to generate commit message"))
-        return response.data.parts
-      } finally {
-        if (sessionID) void api.client.session.delete({ sessionID }).catch(() => {})
+        .finally(() => {
+          void api.client.session.delete({ sessionID }).then(
+            () => undefined,
+            () => undefined,
+          )
+        })
+      if (response.error) {
+        throw new Error(responseErrorMessage({ err: response.error, fallback: "Failed to generate commit message" }))
       }
+      return response.data.parts
     },
-    async install(runtime, keybinds, options) {
+    async install({ runtime, keybinds, options }) {
       let replacedSidebarFiles = false
       if (options.replaceSidebarFiles) {
         const item = api.plugins.list().find((entry) => entry.id === "internal:sidebar-files")
@@ -120,9 +130,9 @@ const commands = ({ runtime, keybinds }: { runtime: GitGudRuntime; keybinds: Tui
   })
 }
 
-const Button = (props: { label: string; onPress: () => void; disabled?: boolean; muted?: boolean; api: Api }) => {
+const Button = (props: { label: string; onPress: () => void; disabled: boolean; api: Api }) => {
   const theme = createMemo(() => props.api.theme.current)
-  const inactive = createMemo(() => props.disabled || props.muted)
+  const inactive = createMemo(() => props.disabled)
 
   return (
     <box
@@ -215,17 +225,18 @@ const tui: TuiPlugin = async (api, options) => {
     files: [],
     unpushedCommits: 0,
     branch: api.state.vcs?.branch,
+    error: undefined,
   })
   const setState = (patch: Partial<GitState>) => setStateValue((value) => ({ ...value, ...patch }))
-  const host = createHostAdapter(api)
+  const host = createHostAdapter({ api })
   const runtime = createGitGudRuntime({
-    git: createGit(api),
+    git: createGit({ api }),
     host,
     config: optionsValue,
     state,
     setState,
   })
-  await host.install(runtime, keybinds, optionsValue)
+  await host.install({ runtime, keybinds, options: optionsValue })
 }
 
 const plugin: TuiPluginModule & { id: string } = {

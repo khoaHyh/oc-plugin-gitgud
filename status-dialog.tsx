@@ -12,43 +12,47 @@ type OptionValue = `action:${string}` | FileOptionValue
 type Theme = Api["theme"]["current"]
 type ThemeColor = Theme["text"]
 
-type FileOption = {
+type FileOption = Readonly<{
   title: string
   value: FileOptionValue
-  description?: string
+  description: string | undefined
   fg: ThemeColor
   footer: JSX.Element
   category: "Files"
   gutter: JSX.Element
-}
+}>
 
-const toneColor = (theme: Theme, tone: GitFileTone) => {
+const toneColor = ({ theme, tone }: { theme: Theme; tone: GitFileTone }) => {
   if (tone === "success") return theme.success
   if (tone === "warning") return theme.warning
   if (tone === "muted") return theme.textMuted
   return theme.text
 }
 
-const chunk = (text: string, fg: ThemeColor): TextChunk => ({ __isChunk: true, text, fg })
+const chunk = ({ text, fg }: { text: string; fg: ThemeColor }): TextChunk => ({ __isChunk: true, text, fg })
 
-const fileFooter = (file: GitStatusFileOptionViewModel, theme: Theme) => {
+const fileFooter = ({ file, theme }: { file: GitStatusFileOptionViewModel; theme: Theme }) => {
   const chunks = [
-    ...(file.additions ? [chunk(` +${file.additions}`, theme.diffAdded)] : []),
-    ...(file.deletions ? [chunk(` -${file.deletions}`, theme.diffRemoved)] : []),
+    ...(file.additions ? [chunk({ text: ` +${file.additions}`, fg: theme.diffAdded })] : []),
+    ...(file.deletions ? [chunk({ text: ` -${file.deletions}`, fg: theme.diffRemoved })] : []),
   ]
   return chunks.length ? new StyledText(chunks) : ""
 }
 
 const FileStatus = (props: { api: Api; file: Accessor<GitStatusFileOptionViewModel | undefined> }) => {
   const theme = createMemo(() => props.api.theme.current)
-  return <text fg={toneColor(theme(), props.file()?.statusTone ?? "muted")}>{props.file()?.statusLabel ?? "··"}</text>
+  return (
+    <text fg={toneColor({ theme: theme(), tone: props.file()?.statusTone ?? "muted" })}>
+      {props.file()?.statusLabel ?? "··"}
+    </text>
+  )
 }
 
 const FileFooter = (props: { api: Api; file: Accessor<GitStatusFileOptionViewModel | undefined> }) => {
   const theme = createMemo(() => props.api.theme.current)
   const footer = createMemo(() => {
     const item = props.file()
-    return item ? fileFooter(item, theme()) : ""
+    return item ? fileFooter({ file: item, theme: theme() }) : ""
   })
 
   return <>{footer()}</>
@@ -67,7 +71,7 @@ export const GitStatusDialog = (props: { api: Api; runtime: GitGudRuntime }) => 
   })
 
   const fileOption = (file: GitStatusFileOptionViewModel) => {
-    const fg = toneColor(props.api.theme.current, file.titleTone)
+    const fg = toneColor({ theme: props.api.theme.current, tone: file.titleTone })
     const cached = fileOptionCache.get(file.path)
     if (cached && cached.title === file.title && cached.description === file.description && cached.fg === fg)
       return cached

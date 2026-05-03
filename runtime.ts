@@ -8,11 +8,11 @@ import {
 } from "./commit-message"
 import type { GitGudConfig } from "./config"
 import type { GitResult } from "./git"
-import type { GitState, ToastVariant } from "./types"
+import type { GitGudRefreshInput, GitState, ToastVariant } from "./types"
 import { createCommandViewModel, createGitStatusDialogViewModel, createSidebarViewModel } from "./view-model"
 
-export type GitProcessAdapter = {
-  status: () => Promise<GitFile[]>
+export type GitProcessAdapter = Readonly<{
+  status: () => Promise<ReadonlyArray<GitFile>>
   stageFile: (file: GitFile) => Promise<GitResult>
   stageAll: () => Promise<GitResult>
   unstageFile: (file: GitFile) => Promise<GitResult>
@@ -20,43 +20,43 @@ export type GitProcessAdapter = {
   stagedDiff: () => Promise<GitResult>
   stagedStat: () => Promise<GitResult>
   unpushedCommits: () => Promise<number>
-  commit: (message: string) => Promise<GitResult>
+  commit: (input: { message: string }) => Promise<GitResult>
   push: () => Promise<GitResult>
-}
+}>
 
-export type CommitAgentRequest = {
+export type CommitAgentRequest = Readonly<{
   agent: string
-  model?: GitGudConfig["commitModel"]
+  model: GitGudConfig["commitModel"]
   system: string
   prompt: string
-}
+}>
 
-export type GitGudHostAdapter = {
+export type GitGudHostAdapter = Readonly<{
   branch: () => string | undefined
-  toast: (variant: ToastVariant, message: string) => void
+  toast: (input: { variant: ToastVariant; message: string }) => void
   confirm: (input: { title: string; message: string; onConfirm: () => void }) => void
   promptCommit: (input: { initial: string; busy: boolean; onConfirm: (value: string) => void }) => void
   showStatus: (runtime: GitGudRuntime) => void
   clearDialog: () => void
   requestCommitMessage: (input: CommitAgentRequest) => Promise<readonly unknown[]>
-}
+}>
 
-export type GitGudRuntimeOptions = {
+export type GitGudRuntimeOptions = Readonly<{
   git: GitProcessAdapter
   host: GitGudHostAdapter
   config: GitGudConfig
   state: () => GitState
   setState: (patch: Partial<GitState>) => void
-}
+}>
 
-export type GitGudRuntime = {
+export type GitGudRuntime = Readonly<{
   state: () => GitState
-  view: {
+  view: Readonly<{
     sidebar: () => ReturnType<typeof createSidebarViewModel>
     commands: () => ReturnType<typeof createCommandViewModel>
     statusDialog: () => ReturnType<typeof createGitStatusDialogViewModel>
-  }
-  refresh: (patch?: Partial<GitState>, options?: { loading?: boolean }) => Promise<void>
+  }>
+  refresh: (input?: Partial<GitGudRefreshInput>) => Promise<void>
   runAction: (value: GitActionValue) => void
   runDialogAction: (value: GitDialogActionValue) => void
   selectStatusFile: (path: string) => void
@@ -68,13 +68,27 @@ export type GitGudRuntime = {
   showCommit: (initial?: string) => void
   push: () => Promise<void>
   showStatus: () => void
-}
+}>
 
 export const createGitGudRuntime = ({ git, host, config, state, setState }: GitGudRuntimeOptions): GitGudRuntime => {
-  const refresh: GitGudRuntime["refresh"] = async (patch = {}, options) => {
-    if (options?.loading ?? true) setState({ loading: true, error: undefined })
+  const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+  type RuntimeResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: string }>
+
+  const attempt = async <T>(task: () => Promise<T>): Promise<RuntimeResult<T>> => {
     try {
-      const [files, unpushedCommits] = await Promise.all([git.status(), git.unpushedCommits()])
+      return { ok: true, value: await task() }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) }
+    }
+  }
+
+  const refresh: GitGudRuntime["refresh"] = async (input = {}) => {
+    const patch = input.patch ?? {}
+    if (input.loading ?? true) setState({ loading: true, error: undefined })
+    const result = await attempt(() => Promise.all([git.status(), git.unpushedCommits()]))
+    if (result.ok) {
+      const [files, unpushedCommits] = result.value
       setState({
         ...patch,
         files,
@@ -83,39 +97,36 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         error: undefined,
         loading: false,
       })
-    } catch (err) {
+      return
+    }
+
+    if (!result.ok) {
       setState({
         ...patch,
         files: [],
         unpushedCommits: 0,
-        error: err instanceof Error ? err.message : String(err),
+        error: result.error,
         loading: false,
       })
     }
   }
 
-  const mutate = async (label: string, task: () => Promise<unknown>) => {
+  const mutate = async ({ label, task }: { label: string; task: () => Promise<unknown> }) => {
     if (state().busy) return false
     setState({ busy: true })
-    try {
-      await task()
-      host.toast("success", label)
-      return true
-    } catch (err) {
-      host.toast("error", err instanceof Error ? err.message : String(err))
-      return false
-    } finally {
-      await refresh({ busy: false }, { loading: false })
-    }
+    const result = await attempt(task)
+    host.toast(result.ok ? { variant: "success", message: label } : { variant: "error", message: result.error })
+    await refresh({ patch: { busy: false }, loading: false })
+    return result.ok
   }
 
-  const commit = async (message: string) => {
-    const parts = commitMessageParts(message)
+  const commit = async ({ message }: { message: string }) => {
+    const parts = commitMessageParts({ message })
     if (!parts.summary) {
-      host.toast("warning", "Commit message is required.")
+      host.toast({ variant: "warning", message: "Commit message is required." })
       return
     }
-    if (await mutate("Committed staged changes.", () => git.commit(message))) {
+    if (await mutate({ label: "Committed staged changes.", task: () => git.commit({ message }) })) {
       setState({ message: "" })
       host.clearDialog()
     }
@@ -130,60 +141,64 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         title: "Stage all changes?",
         message: "There are no staged files. Stage all changes before committing?",
         onConfirm: () => {
-          void mutate("Staged all changes.", () => git.stageAll()).then(() => showCommit(initial))
+          void mutate({ label: "Staged all changes.", task: () => git.stageAll() }).then(() => showCommit(initial))
         },
       })
       return
     }
 
     if (staged.length === 0) {
-      host.toast("warning", "No staged files to commit.")
+      host.toast({ variant: "warning", message: "No staged files to commit." })
       return
     }
 
     host.promptCommit({
       initial,
       busy: state().busy,
-      onConfirm: (value) => void commit(value),
+      onConfirm: (value) => void commit({ message: value }),
     })
   }
 
   const generateMessage: GitGudRuntime["generateMessage"] = async () => {
     if (state().busy) return
     setState({ busy: true })
-    try {
+    const result = await attempt(async () => {
       const [stat, diff] = await Promise.all([git.stagedStat(), git.stagedDiff()])
       if (!diff.stdout.trim()) {
-        host.toast("warning", "No staged changes to describe.")
-        return
+        return { kind: "empty" } as const
       }
 
-      const message = textParts(
-        await host.requestCommitMessage({
+      const message = textParts({
+        parts: await host.requestCommitMessage({
           agent: config.commitAgent,
           model: config.commitModel,
-          system: commitMessageSystemWithInstructions(config.commitSystemInstructions),
-          prompt: commitMessagePrompt(stat.stdout, diff.stdout),
+          system: commitMessageSystemWithInstructions({ instructions: config.commitSystemInstructions }),
+          prompt: commitMessagePrompt({ stat: stat.stdout, diff: diff.stdout }),
         }),
-      )
+      })
       if (!message) throw new Error("The model returned an empty commit message")
-      setState({ message, busy: false })
-      host.toast("success", "Generated commit message.")
-      showCommit(message)
-    } catch (err) {
-      host.toast("error", err instanceof Error ? err.message : String(err))
-    } finally {
-      setState({ busy: false })
+      return { kind: "message", message } as const
+    })
+
+    if (result.ok && result.value.kind === "empty") {
+      host.toast({ variant: "warning", message: "No staged changes to describe." })
+    } else if (result.ok) {
+      setState({ message: result.value.message, busy: false })
+      host.toast({ variant: "success", message: "Generated commit message." })
+      showCommit(result.value.message)
+    } else {
+      host.toast({ variant: "error", message: result.error })
     }
+    setState({ busy: false })
   }
 
   const push: GitGudRuntime["push"] = async () => {
     if (state().unpushedCommits === 0) {
-      host.toast("warning", "No unpushed commits to push.")
+      host.toast({ variant: "warning", message: "No unpushed commits to push." })
       return
     }
 
-    const run = () => mutate("Pushed current branch.", () => git.push())
+    const run = () => mutate({ label: "Pushed current branch.", task: () => git.push() })
     if (!config.confirmPush) {
       await run()
       return
@@ -199,9 +214,9 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
   const runtime: GitGudRuntime = {
     state,
     view: {
-      sidebar: () => createSidebarViewModel(state()),
-      commands: () => createCommandViewModel(state()),
-      statusDialog: () => createGitStatusDialogViewModel(state()),
+      sidebar: () => createSidebarViewModel({ state: state() }),
+      commands: () => createCommandViewModel({ state: state() }),
+      statusDialog: () => createGitStatusDialogViewModel({ state: state() }),
     },
     refresh,
     runAction(value) {
@@ -225,16 +240,16 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (file.staged) void runtime.unstageFile(file)
     },
     stageFile(file) {
-      return mutate(`Staged ${firstLine(file.path)}.`, () => git.stageFile(file))
+      return mutate({ label: `Staged ${firstLine(file.path)}.`, task: () => git.stageFile(file) })
     },
     stageAll() {
-      return mutate("Staged all changes.", () => git.stageAll())
+      return mutate({ label: "Staged all changes.", task: () => git.stageAll() })
     },
     unstageFile(file) {
-      return mutate(`Unstaged ${firstLine(file.path)}.`, () => git.unstageFile(file))
+      return mutate({ label: `Unstaged ${firstLine(file.path)}.`, task: () => git.unstageFile(file) })
     },
     unstageAll() {
-      return mutate("Unstaged all changes.", () => git.unstageAll())
+      return mutate({ label: "Unstaged all changes.", task: () => git.unstageAll() })
     },
     generateMessage,
     showCommit,

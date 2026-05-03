@@ -4,6 +4,7 @@ export type GitActionValue = "open-status" | "stage-all" | "unstage-all" | "comm
 
 export type GitDialogActionValue = Exclude<GitActionValue, "open-status" | "refresh">
 export type GitDialogActionOptionValue = `action:${GitDialogActionValue}`
+type GitCommandOnlyActionValue = Exclude<GitActionValue, GitDialogActionValue>
 export type GitActionKeybindName =
   | "gitgud.open_status"
   | "gitgud.stage_all"
@@ -12,14 +13,32 @@ export type GitActionKeybindName =
   | "gitgud.push"
   | "gitgud.refresh"
 
-export type GitActionCatalogItem = {
-  value: GitActionValue
+type GitActionCatalogDialog =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{
+      kind: "select"
+      title: string
+    }>
+
+type GitActionCatalogBase<TActionValue extends GitActionValue> = Readonly<{
+  value: TActionValue
   commandTitle: string
-  dialogTitle?: string
   category: "Git"
   keybindName: GitActionKeybindName
   enabled: (state: GitState) => boolean
-}
+}>
+
+type GitCommandOnlyActionCatalogItem = GitActionCatalogBase<GitCommandOnlyActionValue> &
+  Readonly<{
+    dialog: Extract<GitActionCatalogDialog, { kind: "none" }>
+  }>
+
+type GitDialogActionCatalogItem = GitActionCatalogBase<GitDialogActionValue> &
+  Readonly<{
+    dialog: Extract<GitActionCatalogDialog, { kind: "select" }>
+  }>
+
+export type GitActionCatalogItem = GitCommandOnlyActionCatalogItem | GitDialogActionCatalogItem
 
 export const defaultGitGudKeybinds = {
   "gitgud.open_status": "<leader>v",
@@ -28,21 +47,25 @@ export const defaultGitGudKeybinds = {
   "gitgud.commit": "<leader>C",
   "gitgud.push": "<leader>P",
   "gitgud.refresh": "f5",
-} satisfies Record<GitActionKeybindName, string>
+} as const satisfies Record<GitActionKeybindName, string>
 
 const hasStaged = (state: GitState) => state.files.some((file) => file.staged)
 const hasUnstaged = (state: GitState) => state.files.some((file) => file.unstaged || file.untracked)
 
-const dialogActionValue = (item: GitActionCatalogItem): GitDialogActionValue | undefined => {
-  if (!item.dialogTitle) return
-  if (item.value === "open-status" || item.value === "refresh") return
+export const isGitDialogActionCatalogItem = (item: GitActionCatalogItem): item is GitDialogActionCatalogItem => {
+  return item.dialog.kind === "select"
+}
+
+const dialogActionValue = ({ item }: { item: GitActionCatalogItem }): GitDialogActionValue | undefined => {
+  if (!isGitDialogActionCatalogItem(item)) return
   return item.value
 }
 
-export const gitActionCatalog: GitActionCatalogItem[] = [
+export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   {
     value: "open-status",
     commandTitle: "GitGud: Open Git Status",
+    dialog: { kind: "none" },
     category: "Git",
     keybindName: "gitgud.open_status",
     enabled: (state) => !state.busy,
@@ -50,7 +73,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
   {
     value: "stage-all",
     commandTitle: "GitGud: Stage all",
-    dialogTitle: "Stage all changes",
+    dialog: { kind: "select", title: "Stage all changes" },
     category: "Git",
     keybindName: "gitgud.stage_all",
     enabled: (state) => hasUnstaged(state) && !state.busy,
@@ -58,7 +81,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
   {
     value: "unstage-all",
     commandTitle: "GitGud: Unstage all",
-    dialogTitle: "Unstage all changes",
+    dialog: { kind: "select", title: "Unstage all changes" },
     category: "Git",
     keybindName: "gitgud.unstage_all",
     enabled: (state) => hasStaged(state) && !state.busy,
@@ -66,7 +89,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
   {
     value: "commit",
     commandTitle: "GitGud: Commit",
-    dialogTitle: "Commit staged changes",
+    dialog: { kind: "select", title: "Commit staged changes" },
     category: "Git",
     keybindName: "gitgud.commit",
     enabled: (state) => hasStaged(state) && !state.busy,
@@ -74,7 +97,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
   {
     value: "push",
     commandTitle: "GitGud: Push",
-    dialogTitle: "Push current branch",
+    dialog: { kind: "select", title: "Push current branch" },
     category: "Git",
     keybindName: "gitgud.push",
     enabled: (state) => state.unpushedCommits > 0 && !state.busy,
@@ -82,6 +105,7 @@ export const gitActionCatalog: GitActionCatalogItem[] = [
   {
     value: "refresh",
     commandTitle: "GitGud: Refresh",
+    dialog: { kind: "none" },
     category: "Git",
     keybindName: "gitgud.refresh",
     enabled: (state) => !state.busy,
@@ -94,13 +118,13 @@ export const gitDialogActionOptionValue = (value: GitDialogActionValue): GitDial
   return `action:${value}`
 }
 
-export const gitDialogActionOptions = (state: GitState) => {
+export const gitDialogActionOptions = ({ state }: { state: GitState }) => {
   return gitActionCatalog.flatMap((item) => {
-    const value = dialogActionValue(item)
-    if (!value || !item.dialogTitle) return []
+    const value = dialogActionValue({ item })
+    if (!value || item.dialog.kind === "none") return []
     return [
       {
-        title: item.dialogTitle,
+        title: item.dialog.title,
         value: gitDialogActionOptionValue(value),
         category: "Actions",
         disabled: !item.enabled(state),

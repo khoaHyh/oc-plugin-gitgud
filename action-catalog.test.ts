@@ -5,7 +5,9 @@ import type { GitState } from "./types"
 
 const file = (patch: Partial<GitFile>): GitFile => ({
   path: "file.ts",
+  previousPath: undefined,
   title: "file.ts",
+  description: undefined,
   statusLabel: "·M",
   titleTone: "text",
   statusTone: "muted",
@@ -24,12 +26,14 @@ const state = (patch: Partial<GitState> = {}): GitState => ({
   message: "",
   files: [],
   unpushedCommits: 0,
+  branch: undefined,
+  error: undefined,
   ...patch,
 })
 
 describe("Git action catalog", () => {
   test("shows only status-dialog actions and parses only selectable action values", () => {
-    const optionValues: string[] = gitDialogActionOptions(state({ files: [file({ staged: true })] })).map(
+    const optionValues: string[] = gitDialogActionOptions({ state: state({ files: [file({ staged: true })] }) }).map(
       (item) => item.value,
     )
 
@@ -43,10 +47,14 @@ describe("Git action catalog", () => {
   })
 
   test("enables actions from changed-file state", () => {
-    const unstagedOnly = gitDialogActionOptions(state({ files: [file({ unstaged: true })] }))
-    const stagedOnly = gitDialogActionOptions(state({ files: [file({ staged: true })] }))
-    const untrackedOnly = gitDialogActionOptions(state({ files: [file({ untracked: true, tracked: false })] }))
-    const busy = gitDialogActionOptions(state({ busy: true, files: [file({ staged: true, unstaged: true })] }))
+    const unstagedOnly = gitDialogActionOptions({ state: state({ files: [file({ unstaged: true })] }) })
+    const stagedOnly = gitDialogActionOptions({ state: state({ files: [file({ staged: true })] }) })
+    const untrackedOnly = gitDialogActionOptions({
+      state: state({ files: [file({ untracked: true, tracked: false })] }),
+    })
+    const busy = gitDialogActionOptions({
+      state: state({ busy: true, files: [file({ staged: true, unstaged: true })] }),
+    })
 
     expect(unstagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
     expect(unstagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(true)
@@ -56,7 +64,7 @@ describe("Git action catalog", () => {
     expect(stagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(false)
     expect(stagedOnly.find((item) => item.value === "action:push")?.disabled).toBe(true)
     expect(
-      gitDialogActionOptions(state({ files: [file({ staged: true })], unpushedCommits: 1 })).find(
+      gitDialogActionOptions({ state: state({ files: [file({ staged: true })], unpushedCommits: 1 }) }).find(
         (item) => item.value === "action:push",
       )?.disabled,
     ).toBe(false)

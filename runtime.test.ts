@@ -6,7 +6,9 @@ import type { GitState, ToastVariant } from "./types"
 
 const file = (patch: Partial<GitFile>): GitFile => ({
   path: "file.ts",
+  previousPath: undefined,
   title: "file.ts",
+  description: undefined,
   statusLabel: "·M",
   titleTone: "text",
   statusTone: "muted",
@@ -21,7 +23,14 @@ const file = (patch: Partial<GitFile>): GitFile => ({
 
 const result = (stdout = "") => ({ code: 0, stdout, stderr: "" })
 
-const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = defaultConfig) => {
+type HarnessInput = Readonly<{
+  patch: Partial<GitState>
+  config: GitGudConfig
+}>
+
+const createHarness = (input: Partial<HarnessInput> = {}) => {
+  const patch = input.patch ?? {}
+  const config = input.config ?? defaultConfig
   let state: GitState = {
     loading: false,
     busy: false,
@@ -29,6 +38,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
     files: [],
     unpushedCommits: 0,
     branch: "main",
+    error: undefined,
     ...patch,
   }
   const operations: string[] = []
@@ -37,6 +47,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
   let confirm: (() => void) | undefined
   let commitPrompt = ""
   let commitPromptBusy: boolean | undefined
+  let commitPromptConfirm: ((value: string) => void) | undefined
   let commitMessageRequest: Parameters<GitGudHostAdapter["requestCommitMessage"]>[0] | undefined
 
   const git: GitProcessAdapter = {
@@ -72,7 +83,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
       operations.push("unpushed-commits")
       return state.unpushedCommits
     },
-    async commit(message) {
+    async commit({ message }) {
       operations.push(`commit:${message}`)
       return result()
     },
@@ -84,7 +95,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
 
   const host: GitGudHostAdapter = {
     branch: () => state.branch,
-    toast: (variant, message) => toasts.push([variant, message]),
+    toast: ({ variant, message }) => toasts.push([variant, message]),
     confirm(input) {
       confirmations.push({ title: input.title, message: input.message })
       confirm = input.onConfirm
@@ -92,6 +103,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
     promptCommit(input) {
       commitPrompt = input.initial
       commitPromptBusy = input.busy
+      commitPromptConfirm = input.onConfirm
     },
     showStatus() {
       operations.push("show-status")
@@ -125,6 +137,7 @@ const createHarness = (patch: Partial<GitState> = {}, config: GitGudConfig = def
     toasts,
     confirmations,
     confirm: () => confirm?.(),
+    confirmCommit: ({ message }: { message: string }) => commitPromptConfirm?.(message),
     get commitPrompt() {
       return commitPrompt
     },
@@ -143,7 +156,7 @@ describe("GitGud runtime", () => {
   test("stages an unstaged file and unstages a staged file when selected", async () => {
     const staged = file({ path: "staged.ts", staged: true })
     const unstaged = file({ path: "unstaged.ts", unstaged: true })
-    const harness = createHarness({ files: [staged, unstaged] })
+    const harness = createHarness({ patch: { files: [staged, unstaged] } })
 
     harness.runtime.selectStatusFile("unstaged.ts")
     await tick()
@@ -155,7 +168,7 @@ describe("GitGud runtime", () => {
   })
 
   test("confirms stage-all before commit when no files are staged", async () => {
-    const harness = createHarness({ files: [file({ unstaged: true })] })
+    const harness = createHarness({ patch: { files: [file({ unstaged: true })] } })
 
     harness.runtime.showCommit()
     expect(harness.confirmations.length).toBe(1)
@@ -169,7 +182,7 @@ describe("GitGud runtime", () => {
   })
 
   test("commit action generates a commit message for staged changes", async () => {
-    const harness = createHarness({ files: [file({ staged: true })] })
+    const harness = createHarness({ patch: { files: [file({ staged: true })] } })
 
     harness.runtime.runAction("commit")
     await tick()
@@ -180,8 +193,21 @@ describe("GitGud runtime", () => {
     expect(harness.commitPrompt).toBe("feat: test runtime")
   })
 
+  test("commit prompt confirmation commits through the git adapter", async () => {
+    const harness = createHarness({ patch: { files: [file({ staged: true })], message: "fix: refresh" } })
+
+    harness.runtime.showCommit()
+    harness.confirmCommit({ message: "fix: refresh" })
+    await tick()
+
+    expect(harness.operations).toContain("commit:fix: refresh")
+    expect(harness.operations).toContain("clear-dialog")
+    expect(harness.state.message).toBe("")
+    expect(harness.toasts).toEqual([["success", "Committed staged changes."]])
+  })
+
   test("push warns when there are no unpushed commits", async () => {
-    const harness = createHarness({ unpushedCommits: 0 })
+    const harness = createHarness({ patch: { unpushedCommits: 0 } })
 
     await harness.runtime.push()
 
@@ -190,7 +216,7 @@ describe("GitGud runtime", () => {
   })
 
   test("generates a Commit message through the host adapter", async () => {
-    const harness = createHarness({ files: [file({ staged: true })] })
+    const harness = createHarness({ patch: { files: [file({ staged: true })] } })
 
     await harness.runtime.generateMessage()
 
@@ -203,14 +229,14 @@ describe("GitGud runtime", () => {
   })
 
   test("generates a commit message with configured model and user instructions", async () => {
-    const harness = createHarness(
-      { files: [file({ staged: true })] },
-      {
+    const harness = createHarness({
+      patch: { files: [file({ staged: true })] },
+      config: {
         ...defaultConfig,
         commitModel: { providerID: "anthropic", modelID: "claude-sonnet-4-20250514" },
         commitSystemInstructions: "Mention the ticket ID when one is present.",
       },
-    )
+    })
 
     await harness.runtime.generateMessage()
 
