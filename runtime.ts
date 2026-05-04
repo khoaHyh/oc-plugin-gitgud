@@ -90,6 +90,12 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
   const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
   type RuntimeResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: string }>
+  type WorkflowState = Readonly<Pick<GitState, "workflow" | "graphite">>
+  type RefreshRequest = Readonly<{
+    patch: Partial<GitState>
+    loading: boolean
+    probeGraphite: boolean
+  }>
 
   const attempt = async <T>(task: () => Promise<T>): Promise<RuntimeResult<T>> => {
     try {
@@ -99,9 +105,19 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
   }
 
-  const graphiteState = async () => {
-    if (config.workflow === "git")
-      return { workflow: "git", graphite: { available: false, summary: undefined } } as const
+  const gitWorkflowState = () => {
+    return { workflow: "git", graphite: { available: false, summary: undefined } } as const
+  }
+
+  const currentWorkflowState = (): WorkflowState => {
+    if (config.workflow === "git") return gitWorkflowState()
+    if (config.workflow === "graphite") return { workflow: "graphite", graphite: state().graphite }
+    return { workflow: state().workflow, graphite: state().graphite }
+  }
+
+  const graphiteState = async ({ probeGraphite }: { probeGraphite: boolean }): Promise<WorkflowState> => {
+    if (!probeGraphite) return currentWorkflowState()
+    if (config.workflow === "git") return gitWorkflowState()
 
     const result = await git.graphiteLogShort()
     const available = result.code === 0
@@ -112,17 +128,41 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       } as const
     }
 
-    if (!available) return { workflow: "git", graphite: { available: false, summary: undefined } } as const
+    if (!available) return gitWorkflowState()
     return {
       workflow: "graphite",
       graphite: { available: true, summary: result.stdout.trim() || undefined },
     } as const
   }
 
-  const refresh: GitGudRuntime["refresh"] = async (input = {}) => {
-    const patch = input.patch ?? {}
-    if (input.loading ?? true) setState({ loading: true, error: undefined })
-    const result = await attempt(() => Promise.all([git.status(), git.unpushedCommits(), graphiteState()]))
+  const normalizeRefreshInput = (input: Partial<GitGudRefreshInput>): RefreshRequest => {
+    return {
+      patch: input.patch ?? {},
+      loading: input.loading ?? true,
+      probeGraphite: input.probeGraphite ?? true,
+    }
+  }
+
+  const mergeRefreshRequest = (current: RefreshRequest | undefined, next: RefreshRequest): RefreshRequest => {
+    if (!current) return next
+    return {
+      patch: { ...current.patch, ...next.patch },
+      loading: current.loading || next.loading,
+      probeGraphite: current.probeGraphite || next.probeGraphite,
+    }
+  }
+
+  const refreshErrorPatch = ({ probeGraphite }: { probeGraphite: boolean }): Partial<GitState> => {
+    if (probeGraphite) return { graphite: { available: false, summary: undefined } }
+    return currentWorkflowState()
+  }
+
+  const runRefresh = async (request: RefreshRequest) => {
+    const { patch, loading, probeGraphite } = request
+    if (loading) setState({ loading: true, error: undefined })
+    const result = await attempt(() =>
+      Promise.all([git.status(), git.unpushedCommits(), graphiteState({ probeGraphite })]),
+    )
     if (result.ok) {
       const [files, unpushedCommits, workflow] = result.value
       setState({
@@ -142,19 +182,54 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         ...patch,
         files: [],
         unpushedCommits: 0,
-        graphite: { available: false, summary: undefined },
+        ...refreshErrorPatch({ probeGraphite }),
         error: result.error,
         loading: false,
       })
     }
   }
 
-  const mutate = async ({ label, task }: { label: string; task: () => Promise<unknown> }) => {
+  let activeRefresh: Promise<void> | undefined
+  let queuedRefresh: RefreshRequest | undefined
+
+  const refresh: GitGudRuntime["refresh"] = async (input = {}) => {
+    const request = normalizeRefreshInput(input)
+    if (activeRefresh) {
+      queuedRefresh = mergeRefreshRequest(queuedRefresh, request)
+      return activeRefresh
+    }
+
+    activeRefresh = (async () => {
+      let next: RefreshRequest | undefined = request
+      while (next) {
+        const current = next
+        queuedRefresh = undefined
+        await runRefresh(current)
+        next = queuedRefresh
+      }
+    })()
+
+    try {
+      await activeRefresh
+    } finally {
+      activeRefresh = undefined
+    }
+  }
+
+  const mutate = async ({
+    label,
+    task,
+    probeGraphite,
+  }: {
+    label: string
+    task: () => Promise<unknown>
+    probeGraphite: boolean
+  }) => {
     if (state().busy) return false
     setState({ busy: true })
     const result = await attempt(task)
     host.toast(result.ok ? { variant: "success", message: label } : { variant: "error", message: result.error })
-    await refresh({ patch: { busy: false }, loading: false })
+    await refresh({ patch: { busy: false }, loading: false, probeGraphite })
     return result.ok
   }
 
@@ -164,7 +239,9 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       host.toast({ variant: "warning", message: "Commit message is required." })
       return
     }
-    if (await mutate({ label: "Committed staged changes.", task: () => git.commit({ message }) })) {
+    if (
+      await mutate({ label: "Committed staged changes.", task: () => git.commit({ message }), probeGraphite: false })
+    ) {
       setState({ message: "" })
       host.clearDialog()
     }
@@ -207,7 +284,9 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         title: "Stage all changes?",
         message: "There are no staged files. Stage all changes before committing?",
         onConfirm: () => {
-          void mutate({ label: "Staged all changes.", task: () => git.stageAll() }).then(() => showCommit(initial))
+          void mutate({ label: "Staged all changes.", task: () => git.stageAll(), probeGraphite: false }).then(() =>
+            showCommit(initial),
+          )
         },
       })
       return
@@ -296,6 +375,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         void mutate({
           label: `Created Graphite branch ${firstLine(branch)}.`,
           task: () => git.graphiteCreate({ branch }),
+          probeGraphite: true,
         }).then((ok) => {
           if (ok) host.clearDialog()
         })
@@ -315,7 +395,9 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         title: "Stage all changes?",
         message: "There are no staged files. Stage all changes before modifying the current diff?",
         onConfirm: () => {
-          void mutate({ label: "Staged all changes.", task: () => git.stageAll() }).then(() => showGraphiteModify())
+          void mutate({ label: "Staged all changes.", task: () => git.stageAll(), probeGraphite: false }).then(() =>
+            showGraphiteModify(),
+          )
         },
       })
       return
@@ -333,14 +415,16 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         busyText: "modifying",
         onConfirm: (value) => {
           if (!validMessage({ message: value })) return
-          void mutate({ label: "Modified current diff.", task: () => git.graphiteModify({ message: value }) }).then(
-            (ok) => {
-              if (ok) {
-                setState({ message: "" })
-                host.clearDialog()
-              }
-            },
-          )
+          void mutate({
+            label: "Modified current diff.",
+            task: () => git.graphiteModify({ message: value }),
+            probeGraphite: true,
+          }).then((ok) => {
+            if (ok) {
+              setState({ message: "" })
+              host.clearDialog()
+            }
+          })
         },
       })
     })
@@ -351,7 +435,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       host.toast({ variant: "warning", message: "Graphite CLI is not available for this repository." })
       return
     }
-    void mutate({ label, task })
+    void mutate({ label, task, probeGraphite: true })
   }
 
   const push: GitGudRuntime["push"] = async () => {
@@ -360,7 +444,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       return
     }
 
-    const run = () => mutate({ label: "Pushed current branch.", task: () => git.push() })
+    const run = () => mutate({ label: "Pushed current branch.", task: () => git.push(), probeGraphite: false })
     if (!config.confirmPush) {
       await run()
       return
@@ -411,16 +495,20 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (file.staged) void runtime.unstageFile(file)
     },
     stageFile(file) {
-      return mutate({ label: `Staged ${firstLine(file.path)}.`, task: () => git.stageFile(file) })
+      return mutate({ label: `Staged ${firstLine(file.path)}.`, task: () => git.stageFile(file), probeGraphite: false })
     },
     stageAll() {
-      return mutate({ label: "Staged all changes.", task: () => git.stageAll() })
+      return mutate({ label: "Staged all changes.", task: () => git.stageAll(), probeGraphite: false })
     },
     unstageFile(file) {
-      return mutate({ label: `Unstaged ${firstLine(file.path)}.`, task: () => git.unstageFile(file) })
+      return mutate({
+        label: `Unstaged ${firstLine(file.path)}.`,
+        task: () => git.unstageFile(file),
+        probeGraphite: false,
+      })
     },
     unstageAll() {
-      return mutate({ label: "Unstaged all changes.", task: () => git.unstageAll() })
+      return mutate({ label: "Unstaged all changes.", task: () => git.unstageAll(), probeGraphite: false })
     },
     generateMessage,
     showCommit,

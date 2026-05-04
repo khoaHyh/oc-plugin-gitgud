@@ -25,6 +25,7 @@ export type GitGudGraphiteState = Readonly<{
 export type GitGudRefreshInput = Readonly<{
   patch: Partial<GitState>
   loading: boolean
+  probeGraphite: boolean
 }>
 
 export type GitGudActions = Readonly<{

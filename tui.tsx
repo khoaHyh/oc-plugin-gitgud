@@ -7,7 +7,7 @@ import { normalizeConfig, type GitGudConfig } from "./config"
 import { createGit } from "./git"
 import { createGitGudRuntime, type GitGudHostAdapter, type GitGudRuntime } from "./runtime"
 import { GitStatusDialog } from "./status-dialog"
-import type { Api, GitState } from "./types"
+import type { Api, GitGudRefreshInput, GitState } from "./types"
 
 export type { Api, GitState }
 export type { GitGudRuntime }
@@ -90,13 +90,35 @@ const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => 
       }
 
       let timer: ReturnType<typeof setTimeout> | undefined
-      const scheduleRefresh = () => {
+      let scheduledRefresh: Partial<GitGudRefreshInput> | undefined
+      const mergeRefreshInput = (
+        current: Partial<GitGudRefreshInput> | undefined,
+        next: Partial<GitGudRefreshInput>,
+      ): Partial<GitGudRefreshInput> => {
+        if (!current) return next
+        return {
+          patch: { ...(current.patch ?? {}), ...(next.patch ?? {}) },
+          loading: (current.loading ?? false) || (next.loading ?? false),
+          probeGraphite: (current.probeGraphite ?? false) || (next.probeGraphite ?? false),
+        }
+      }
+      const scheduleRefresh = (input: Partial<GitGudRefreshInput>) => {
+        scheduledRefresh = mergeRefreshInput(scheduledRefresh, input)
         if (timer) clearTimeout(timer)
-        timer = setTimeout(() => void runtime.refresh(), 150)
+        timer = setTimeout(() => {
+          const request = scheduledRefresh
+          scheduledRefresh = undefined
+          timer = undefined
+          void runtime.refresh(request)
+        }, 150)
       }
 
-      const unwatchFile = api.event.on("file.watcher.updated", scheduleRefresh)
-      const unwatchVcs = api.event.on("vcs.branch.updated", scheduleRefresh)
+      const unwatchFile = api.event.on("file.watcher.updated", () =>
+        scheduleRefresh({ loading: false, probeGraphite: false }),
+      )
+      const unwatchVcs = api.event.on("vcs.branch.updated", () =>
+        scheduleRefresh({ loading: true, probeGraphite: true }),
+      )
 
       api.command.register(() => commands({ runtime, keybinds }))
       api.slots.register(slot({ api, runtime, keybinds }))

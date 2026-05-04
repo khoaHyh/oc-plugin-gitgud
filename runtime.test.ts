@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { GitFile } from "./change-set"
 import { defaultConfig, type GitGudConfig } from "./config"
+import type { GitResult } from "./git"
 import { createGitGudRuntime, type GitGudHostAdapter, type GitProcessAdapter } from "./runtime"
 import type { GitState, ToastVariant } from "./types"
 
@@ -26,7 +27,9 @@ const result = (stdout = "") => ({ code: 0, stdout, stderr: "" })
 type HarnessInput = Readonly<{
   patch: Partial<GitState>
   config: GitGudConfig
-  graphiteLog: ReturnType<typeof result>
+  graphiteLog: GitResult
+  graphiteLogShort: () => Promise<GitResult>
+  status: () => Promise<ReadonlyArray<GitFile>>
 }>
 
 const createHarness = (input: Partial<HarnessInput> = {}) => {
@@ -35,6 +38,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
   const graphiteLog =
     input.graphiteLog ??
     (config.workflow === "graphite" ? result("◉ main\n") : { code: 1, stdout: "", stderr: "not tracked" })
+  const graphiteLogShort = input.graphiteLogShort ?? (() => Promise.resolve(graphiteLog))
   let state: GitState = {
     loading: false,
     busy: false,
@@ -47,6 +51,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
     error: undefined,
     ...patch,
   }
+  const status = input.status ?? (() => Promise.resolve(state.files))
   const operations: string[] = []
   const toasts: [ToastVariant, string][] = []
   const confirmations: { title: string; message: string }[] = []
@@ -59,7 +64,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
   const git: GitProcessAdapter = {
     async status() {
       operations.push("status")
-      return state.files
+      return status()
     },
     async stageFile(item) {
       operations.push(`stage:${item.path}`)
@@ -108,7 +113,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
     },
     async graphiteLogShort() {
       operations.push("gt-log-short")
-      return graphiteLog
+      return graphiteLogShort()
     },
     async graphiteCreate({ branch }) {
       operations.push(`gt-create:${branch}`)
@@ -280,6 +285,77 @@ describe("GitGud runtime", () => {
     expect(harness.state.graphite).toEqual({ available: true, summary: "◉ feature/current" })
   })
 
+  test("file refresh reuses cached Graphite state without probing Graphite", async () => {
+    const harness = createHarness({ graphiteLog: result("◉ feature/current\n") })
+
+    await harness.runtime.refresh()
+    await harness.runtime.refresh({ probeGraphite: false })
+
+    expect(harness.operations.filter((op) => op === "gt-log-short").length).toBe(1)
+    expect(harness.state.workflow).toBe("graphite")
+    expect(harness.state.graphite).toEqual({ available: true, summary: "◉ feature/current" })
+  })
+
+  test("file refreshes coalesce behind an active Graphite probe", async () => {
+    let releaseGraphite: (() => void) | undefined
+    const graphiteReleased = new Promise<void>((resolve) => {
+      releaseGraphite = resolve
+    })
+    const harness = createHarness({
+      graphiteLogShort: async () => {
+        await graphiteReleased
+        return result("◉ feature/current\n")
+      },
+    })
+
+    const initialRefresh = harness.runtime.refresh()
+    await tick()
+    const fileRefresh = harness.runtime.refresh({ probeGraphite: false })
+    if (!releaseGraphite) throw new Error("Expected Graphite probe to be pending")
+    releaseGraphite()
+    await Promise.all([initialRefresh, fileRefresh])
+
+    expect(harness.operations.filter((op) => op === "gt-log-short").length).toBe(1)
+    expect(harness.operations.filter((op) => op === "status").length).toBe(2)
+    expect(harness.state.workflow).toBe("graphite")
+  })
+
+  test("queued refresh upgrades probeGraphite when a branch refresh follows a file refresh", async () => {
+    let releaseStatus: (() => void) | undefined
+    const statusReleased = new Promise<void>((resolve) => {
+      releaseStatus = resolve
+    })
+    const harness = createHarness({
+      graphiteLog: result("◉ feature/current\n"),
+      status: async () => {
+        await statusReleased
+        return []
+      },
+    })
+
+    const fileRefresh = harness.runtime.refresh({ probeGraphite: false })
+    await tick()
+    const branchRefresh = harness.runtime.refresh({ probeGraphite: true })
+    if (!releaseStatus) throw new Error("Expected status refresh to be pending")
+    releaseStatus()
+    await Promise.all([fileRefresh, branchRefresh])
+
+    expect(harness.operations.filter((op) => op === "status").length).toBe(2)
+    expect(harness.operations.filter((op) => op === "gt-log-short").length).toBe(1)
+    expect(harness.state.workflow).toBe("graphite")
+  })
+
+  test("Git mutations reuse cached Graphite state without probing Graphite", async () => {
+    const harness = createHarness({ graphiteLog: result("◉ feature/current\n") })
+
+    await harness.runtime.refresh()
+    await harness.runtime.stageAll()
+
+    expect(harness.operations).toContain("stage-all")
+    expect(harness.operations.filter((op) => op === "gt-log-short").length).toBe(1)
+    expect(harness.state.workflow).toBe("graphite")
+  })
+
   test("generates a Commit message through the host adapter", async () => {
     const harness = createHarness({ patch: { files: [file({ staged: true })] } })
 
@@ -388,5 +464,6 @@ describe("GitGud runtime", () => {
     expect(harness.operations).toContain("gt-sync")
     expect(harness.operations).toContain("gt-up")
     expect(harness.operations).toContain("gt-down")
+    expect(harness.operations.filter((op) => op === "gt-log-short").length).toBe(4)
   })
 })
