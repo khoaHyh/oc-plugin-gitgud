@@ -60,7 +60,7 @@ describe("Git action catalog", () => {
 
     expect(unstagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(false)
     expect(unstagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(true)
-    expect(unstagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(true)
+    expect(unstagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(false)
     expect(stagedOnly.find((item) => item.value === "action:stage-all")?.disabled).toBe(true)
     expect(stagedOnly.find((item) => item.value === "action:unstage-all")?.disabled).toBe(false)
     expect(stagedOnly.find((item) => item.value === "action:commit")?.disabled).toBe(false)
@@ -86,7 +86,7 @@ describe("Git action catalog", () => {
     expect(options.some((item) => item.value === "action:commit")).toBe(false)
     expect(options.some((item) => item.value === "action:push")).toBe(false)
     expect(options.find((item) => item.value === "action:graphite-create")?.disabled).toBe(false)
-    expect(options.find((item) => item.value === "action:graphite-modify")?.disabled).toBe(true)
+    expect(options.find((item) => item.value === "action:graphite-modify")?.disabled).toBe(false)
     expect(options.find((item) => item.value === "action:graphite-submit-stack")?.disabled).toBe(false)
   })
 })

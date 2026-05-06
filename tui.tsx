@@ -3,138 +3,16 @@ import type { TuiCommand, TuiKeybindSet, TuiPlugin, TuiPluginModule, TuiSlotPlug
 import { createMemo, createSignal, Show } from "solid-js"
 import { defaultGitGudKeybinds } from "./action-catalog"
 import type { GitFile } from "./change-set"
-import { normalizeConfig, type GitGudConfig } from "./config"
+import { normalizeConfig } from "./config"
 import { createGit } from "./git"
-import { createGitGudRuntime, type GitGudHostAdapter, type GitGudRuntime } from "./runtime"
-import { GitStatusDialog } from "./status-dialog"
-import type { Api, GitGudRefreshInput, GitState } from "./types"
+import { createOpenCodeGitGudHostAdapter } from "./host-adapter"
+import { createGitGudRuntime, type GitGudRuntime } from "./runtime"
+import type { Api, GitState } from "./types"
 
 export type { Api, GitState }
 export type { GitGudRuntime }
 export type { GitFile }
 export type { GitGudRuntime as GitGudActions }
-
-type OpenCodeGitGudHostAdapter = GitGudHostAdapter &
-  Readonly<{
-    install: (input: { runtime: GitGudRuntime; keybinds: TuiKeybindSet; options: GitGudConfig }) => Promise<void>
-  }>
-
-const createHostAdapter = ({ api }: { api: Api }): OpenCodeGitGudHostAdapter => {
-  const responseErrorMessage = ({ err, fallback }: { err: unknown; fallback: string }) => {
-    if (err && typeof err === "object" && "message" in err && typeof err.message === "string") return err.message
-    if (err && typeof err === "object" && "data" in err) {
-      const data = err.data
-      if (data && typeof data === "object" && "message" in data && typeof data.message === "string") return data.message
-    }
-    return fallback
-  }
-
-  return {
-    branch: () => api.state.vcs?.branch,
-    toast: ({ variant, message }) => api.ui.toast({ variant, message }),
-    confirm(input) {
-      api.ui.dialog.replace(() => <api.ui.DialogConfirm {...input} />)
-    },
-    promptText(input) {
-      api.ui.dialog.replace(() => (
-        <api.ui.DialogPrompt
-          title={input.title}
-          placeholder={input.placeholder}
-          value={input.initial}
-          busy={input.busy}
-          busyText={input.busyText}
-          onConfirm={input.onConfirm}
-        />
-      ))
-    },
-    showStatus(runtime) {
-      api.ui.dialog.replace(() => <GitStatusDialog api={api} runtime={runtime} />)
-      api.ui.dialog.setSize("large")
-    },
-    clearDialog: () => api.ui.dialog.clear(),
-    async requestCommitMessage(input) {
-      let sessionID = ""
-      const session = await api.client.session.create({ title: "GitGud commit message" })
-      if (session.error) {
-        throw new Error(
-          responseErrorMessage({ err: session.error, fallback: "Failed to create commit message session" }),
-        )
-      }
-      sessionID = session.data.id
-      const response = await api.client.session
-        .prompt({
-          sessionID,
-          agent: input.agent,
-          model: input.model,
-          system: input.system,
-          parts: [{ type: "text", text: input.prompt }],
-        })
-        .finally(() => {
-          void api.client.session.delete({ sessionID }).then(
-            () => undefined,
-            () => undefined,
-          )
-        })
-      if (response.error) {
-        throw new Error(responseErrorMessage({ err: response.error, fallback: "Failed to generate commit message" }))
-      }
-      return response.data.parts
-    },
-    async install({ runtime, keybinds, options }) {
-      let replacedSidebarFiles = false
-      if (options.replaceSidebarFiles) {
-        const item = api.plugins.list().find((entry) => entry.id === "internal:sidebar-files")
-        if (item?.enabled && item.active) {
-          replacedSidebarFiles = await api.plugins.deactivate("internal:sidebar-files")
-        }
-      }
-
-      let timer: ReturnType<typeof setTimeout> | undefined
-      let scheduledRefresh: Partial<GitGudRefreshInput> | undefined
-      const mergeRefreshInput = (
-        current: Partial<GitGudRefreshInput> | undefined,
-        next: Partial<GitGudRefreshInput>,
-      ): Partial<GitGudRefreshInput> => {
-        if (!current) return next
-        return {
-          patch: { ...(current.patch ?? {}), ...(next.patch ?? {}) },
-          loading: (current.loading ?? false) || (next.loading ?? false),
-          probeGraphite: (current.probeGraphite ?? false) || (next.probeGraphite ?? false),
-        }
-      }
-      const scheduleRefresh = (input: Partial<GitGudRefreshInput>) => {
-        scheduledRefresh = mergeRefreshInput(scheduledRefresh, input)
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(() => {
-          const request = scheduledRefresh
-          scheduledRefresh = undefined
-          timer = undefined
-          void runtime.refresh(request)
-        }, 150)
-      }
-
-      const unwatchFile = api.event.on("file.watcher.updated", () =>
-        scheduleRefresh({ loading: false, probeGraphite: false }),
-      )
-      const unwatchVcs = api.event.on("vcs.branch.updated", () =>
-        scheduleRefresh({ loading: true, probeGraphite: true }),
-      )
-
-      api.command.register(() => commands({ runtime, keybinds }))
-      api.slots.register(slot({ api, runtime, keybinds }))
-      await runtime.refresh()
-
-      api.lifecycle.onDispose(async () => {
-        if (timer) clearTimeout(timer)
-        unwatchFile()
-        unwatchVcs()
-        if (replacedSidebarFiles) {
-          await api.plugins.activate("internal:sidebar-files")
-        }
-      })
-    },
-  }
-}
 
 const commands = ({ runtime, keybinds }: { runtime: GitGudRuntime; keybinds: TuiKeybindSet }): TuiCommand[] => {
   return runtime.view.commands().map((item) => {
@@ -271,7 +149,7 @@ const tui: TuiPlugin = async (api, options) => {
     error: undefined,
   })
   const setState = (patch: Partial<GitState>) => setStateValue((value) => ({ ...value, ...patch }))
-  const host = createHostAdapter({ api })
+  const host = createOpenCodeGitGudHostAdapter({ api })
   const runtime = createGitGudRuntime({
     git: createGit({ api }),
     host,
@@ -279,7 +157,12 @@ const tui: TuiPlugin = async (api, options) => {
     state,
     setState,
   })
-  await host.install({ runtime, keybinds, options: optionsValue })
+  await host.install({
+    runtime,
+    options: optionsValue,
+    commands: () => commands({ runtime, keybinds }),
+    slot: slot({ api, runtime, keybinds }),
+  })
 }
 
 const plugin: TuiPluginModule & { id: string } = {

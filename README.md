@@ -46,7 +46,8 @@ Plugin options can be configured via the `tui.json` config file.
   the standard Git controls.
 - `replace_sidebar_files` (`boolean`, default `false`) disables OpenCode's default Modified Files sidebar card
 - `confirm_push` (`boolean`, default `true`)
-- `confirm_stage_all_on_commit` (`boolean`, default `true`)
+- `confirm_stage_all_on_commit` (`boolean`, default `true`) asks before committing all changed files
+  when Commit or Graphite Modify is selected with changed files but no staged files
 - `commit_agent` (`string`, optional) overrides the agent used for generated commit messages. When unset,
   OpenCode uses its normal default for the generated session.
 - `commit_model` (`string`, optional) overrides the model for generated commit messages using
@@ -75,7 +76,6 @@ OpenCode's lowercase leader defaults:
     "open_status": "<leader>v",
     "stage_all": "<leader>A",
     "unstage_all": "<leader>U",
-    "generate_commit_message": "<leader>p",
     "commit": "<leader>C",
     "push": "<leader>P",
     "graphite_create": "none",
@@ -91,6 +91,10 @@ OpenCode's lowercase leader defaults:
 
 ### Graphite workflow
 
+Commit generates an editable commit message for staged changes, then commits after confirmation. If no
+files are staged and `confirm_stage_all_on_commit` is enabled, GitGud asks before generating a message
+for all changed files; it stages and commits those changes only after you accept the final commit prompt.
+
 When `workflow` is `"graphite"`, or `"auto"` detects a usable [Graphite](https://graphite.com/)
 CLI stack, GitGud keeps the same simple working-tree controls but swaps commit/push for stacked-diff
 actions using Graphite's canonical commands:
@@ -99,7 +103,10 @@ actions using Graphite's canonical commands:
   without staging or committing changes. If files are staged, GitGud asks you to unstage them first
   to avoid Graphite committing staged changes.
 - Modify current diff: generates an editable commit message for staged changes, then runs
-  `gt modify --commit --message "message"` (`gt m -cm "message"`)
+  `gt modify --commit --message "message"` (`gt m -cm "message"`). If no files are staged and
+  `confirm_stage_all_on_commit` is enabled, GitGud asks before generating a message for all changed
+  files and runs `gt modify --commit --all --message "message"` (`gt m -cam "message"`) after final
+  confirmation.
 - Submit stack: `gt submit --stack` (`gt ss`)
 - Sync stack: `gt sync`
 - Move up/down stack: `gt up` / `gt down`
@@ -109,8 +116,7 @@ actions using Graphite's canonical commands:
 - `GitGud: Stage all`
 - `GitGud: Unstage all`
 - `GitGud: Open Git Status`
-- `GitGud: Generate commit message`
-- `GitGud: Commit`
+- `GitGud: Commit` (generates an editable commit message before committing)
 - `GitGud: Push`
 - `GitGud: Create Graphite branch`
 - `GitGud: Modify current diff`

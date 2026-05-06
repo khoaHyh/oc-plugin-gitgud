@@ -15,6 +15,10 @@ type GitRunInput = Readonly<{
   failure: "throw" | "allow"
 }>
 
+export const graphiteModifyAllArgs = ({ message }: { message: string }): ReadonlyArray<string> => {
+  return ["modify", "--commit", "--all", "--message", message]
+}
+
 export const createGit = ({ api }: { api: Api }) => {
   const cwd = () => api.state.path.worktree || api.state.path.directory || process.cwd()
 
@@ -108,6 +112,9 @@ export const createGit = ({ api }: { api: Api }) => {
     },
     graphiteModify({ message }: { message: string }) {
       return run({ bin: "gt", args: ["modify", "--commit", "--message", message], failure: "throw" })
+    },
+    graphiteModifyAll({ message }: { message: string }) {
+      return run({ bin: "gt", args: graphiteModifyAllArgs({ message }), failure: "throw" })
     },
     graphiteSubmitStack() {
       return run({ bin: "gt", args: ["submit", "--stack"], failure: "throw" })

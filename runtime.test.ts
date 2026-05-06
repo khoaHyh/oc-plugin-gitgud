@@ -123,6 +123,10 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
       operations.push(`gt-modify:${message}`)
       return result()
     },
+    async graphiteModifyAll({ message }) {
+      operations.push(`gt-modify-all:${message}`)
+      return result()
+    },
     async graphiteSubmitStack() {
       operations.push("gt-submit-stack")
       return result()
@@ -215,18 +219,66 @@ describe("GitGud runtime", () => {
     expect(mutations).toEqual(["stage:unstaged.ts", "unstage:staged.ts"])
   })
 
-  test("confirms stage-all before commit when no files are staged", async () => {
+  test("showCommit confirms all changed files without staging before the message is accepted", async () => {
     const harness = createHarness({ patch: { files: [file({ unstaged: true })] } })
 
     harness.runtime.showCommit()
     expect(harness.confirmations.length).toBe(1)
-    expect(harness.confirmations[0]?.title).toBe("Stage all changes?")
+    expect(harness.confirmations[0]?.title).toBe("Commit all changes?")
 
     harness.confirm()
     await tick()
 
+    expect(harness.operations.includes("stage-all")).toBe(false)
+    expect(harness.commitPromptBusy).toBe(false)
+  })
+
+  test("commit stages all changed files only after confirming the generated message", async () => {
+    const harness = createHarness({ patch: { files: [file({ unstaged: true })] } })
+
+    harness.runtime.runAction("commit")
+    expect(harness.confirmations.length).toBe(1)
+    expect(harness.operations.includes("stage-all")).toBe(false)
+
+    harness.confirm()
+    await tick()
+
+    expect(harness.operations).toContain("changed-stat")
+    expect(harness.operations).toContain("changed-diff")
+    expect(harness.commitPrompt).toBe("feat: test runtime")
+    expect(harness.operations.includes("stage-all")).toBe(false)
+
+    harness.confirmCommit({ message: "feat: test runtime" })
+    await tick()
+
     expect(harness.operations).toContain("stage-all")
-    expect(harness.toasts).toEqual([["success", "Staged all changes."]])
+    expect(harness.operations).toContain("commit:feat: test runtime")
+    expect(harness.operations.indexOf("stage-all") < harness.operations.indexOf("commit:feat: test runtime")).toBe(true)
+  })
+
+  test("commit includes untracked file names in all-changes message context", async () => {
+    const harness = createHarness({ patch: { files: [file({ path: "new.ts", untracked: true, tracked: false })] } })
+
+    harness.runtime.runAction("commit")
+    harness.confirm()
+    await tick()
+
+    expect(harness.commitMessageRequest?.prompt).toContain("UNTRACKED FILES:")
+    expect(harness.commitMessageRequest?.prompt).toContain("new.ts")
+  })
+
+  test("commit all-changes workflow skips the confirmation when configured", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ unstaged: true })] },
+      config: { ...defaultConfig, confirmStageAllOnCommit: false },
+    })
+
+    harness.runtime.runAction("commit")
+    await tick()
+
+    expect(harness.confirmations.length).toBe(0)
+    expect(harness.operations).toContain("changed-stat")
+    expect(harness.commitPrompt).toBe("feat: test runtime")
   })
 
   test("commit action generates a commit message for staged changes", async () => {
@@ -446,6 +498,46 @@ describe("GitGud runtime", () => {
     expect(harness.operations).toContain("staged-stat")
     expect(harness.operations).toContain("staged-diff")
     expect(harness.operations).toContain("gt-modify:fix: amend current diff")
+  })
+
+  test("Graphite modify uses native all-changes commit after final message confirmation", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ unstaged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("graphite-modify")
+    expect(harness.confirmations.length).toBe(1)
+    expect(harness.operations.includes("stage-all")).toBe(false)
+
+    harness.confirm()
+    await tick()
+
+    expect(harness.operations).toContain("changed-stat")
+    expect(harness.operations).toContain("changed-diff")
+    expect(harness.operations.includes("stage-all")).toBe(false)
+
+    harness.confirmCommit({ message: "feat: add stack changes" })
+    await tick()
+
+    expect(harness.operations).toContain("gt-modify-all:feat: add stack changes")
+    expect(harness.operations.includes("gt-modify:feat: add stack changes")).toBe(false)
+  })
+
+  test("Graphite modify all-changes workflow skips the confirmation when configured", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ unstaged: true })] },
+      config: { ...defaultConfig, workflow: "graphite", confirmStageAllOnCommit: false },
+    })
+
+    harness.runtime.runAction("graphite-modify")
+    await tick()
+    harness.confirmCommit({ message: "feat: graphite all changes" })
+    await tick()
+
+    expect(harness.confirmations.length).toBe(0)
+    expect(harness.operations).toContain("changed-stat")
+    expect(harness.operations).toContain("gt-modify-all:feat: graphite all changes")
   })
 
   test("Graphite stack actions use canonical gt commands", async () => {

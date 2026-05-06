@@ -27,6 +27,7 @@ export type GitProcessAdapter = Readonly<{
   graphiteLogShort: () => Promise<GitResult>
   graphiteCreate: (input: { branch: string }) => Promise<GitResult>
   graphiteModify: (input: { message: string }) => Promise<GitResult>
+  graphiteModifyAll: (input: { message: string }) => Promise<GitResult>
   graphiteSubmitStack: () => Promise<GitResult>
   graphiteSync: () => Promise<GitResult>
   graphiteUp: () => Promise<GitResult>
@@ -247,6 +248,27 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
   }
 
+  const commitAll = async ({ message }: { message: string }) => {
+    const parts = commitMessageParts({ message })
+    if (!parts.summary) {
+      host.toast({ variant: "warning", message: "Commit message is required." })
+      return
+    }
+    if (
+      await mutate({
+        label: "Committed all changes.",
+        task: async () => {
+          await git.stageAll()
+          return git.commit({ message })
+        },
+        probeGraphite: false,
+      })
+    ) {
+      setState({ message: "" })
+      host.clearDialog()
+    }
+  }
+
   const validMessage = ({ message }: { message: string }) => {
     const parts = commitMessageParts({ message })
     if (parts.summary) return true
@@ -275,18 +297,25 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     })
   }
 
+  const showCommitPrompt = ({ initial, allChanges }: { initial: string; allChanges: boolean }) => {
+    promptMessage({
+      title: allChanges ? "Commit all changes" : "Commit staged changes",
+      initial,
+      busyText: "committing",
+      onConfirm: (value) => void (allChanges ? commitAll({ message: value }) : commit({ message: value })),
+    })
+  }
+
   const showCommit: GitGudRuntime["showCommit"] = (initial = state().message) => {
     const staged = state().files.filter((file) => file.staged)
     const changed = state().files.length > 0
 
     if (staged.length === 0 && changed && config.confirmStageAllOnCommit) {
       host.confirm({
-        title: "Stage all changes?",
-        message: "There are no staged files. Stage all changes before committing?",
+        title: "Commit all changes?",
+        message: "There are no staged files. Commit all changed files?",
         onConfirm: () => {
-          void mutate({ label: "Staged all changes.", task: () => git.stageAll(), probeGraphite: false }).then(() =>
-            showCommit(initial),
-          )
+          showCommitPrompt({ initial, allChanges: true })
         },
       })
       return
@@ -297,12 +326,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       return
     }
 
-    promptMessage({
-      title: "Commit staged changes",
-      initial,
-      busyText: "committing",
-      onConfirm: (value) => void commit({ message: value }),
-    })
+    showCommitPrompt({ initial, allChanges: false })
   }
 
   const generateMessageFromDiff = async ({ scope }: { scope: "staged" | "changed" }) => {
@@ -312,7 +336,17 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       const [stat, diff] = await Promise.all(
         scope === "staged" ? [git.stagedStat(), git.stagedDiff()] : [git.changedStat(), git.changedDiff()],
       )
-      if (!diff.stdout.trim()) {
+      const untracked =
+        scope === "changed"
+          ? state()
+              .files.filter((file) => file.untracked)
+              .map((file) => file.path)
+          : []
+      const diffText = [
+        diff.stdout,
+        untracked.length ? `\nUNTRACKED FILES:\n${untracked.map((path) => `- ${path}`).join("\n")}` : "",
+      ].join("")
+      if (!diffText.trim()) {
         return { kind: "empty" } as const
       }
 
@@ -321,7 +355,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
           agent: config.commitAgent,
           model: config.commitModel,
           system: commitMessageSystemWithInstructions({ instructions: config.commitSystemInstructions }),
-          prompt: commitMessagePrompt({ stat: stat.stdout, diff: diff.stdout }),
+          prompt: commitMessagePrompt({ stat: stat.stdout, diff: diffText }),
         }),
       })
       if (!message) throw new Error("The model returned an empty commit message")
@@ -348,6 +382,26 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     setState({ message, busy: false })
     host.toast({ variant: "success", message: "Generated commit message." })
     showCommit(message)
+  }
+
+  const openAllChangesCommit = () => {
+    void generateMessageFromDiff({ scope: "changed" }).then((message) => {
+      if (!message) return
+      showCommitPrompt({ initial: message, allChanges: true })
+    })
+  }
+
+  const generateAllChangesCommit = () => {
+    if (state().busy) return
+    if (!config.confirmStageAllOnCommit) {
+      openAllChangesCommit()
+      return
+    }
+    host.confirm({
+      title: "Commit all changes?",
+      message: "There are no staged files. Commit all changed files?",
+      onConfirm: openAllChangesCommit,
+    })
   }
 
   const showGraphiteCreate = () => {
@@ -390,15 +444,42 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
     const staged = state().files.filter((file) => file.staged)
     const changed = state().files.length > 0
-    if (staged.length === 0 && changed && config.confirmStageAllOnCommit) {
-      host.confirm({
-        title: "Stage all changes?",
-        message: "There are no staged files. Stage all changes before modifying the current diff?",
-        onConfirm: () => {
-          void mutate({ label: "Staged all changes.", task: () => git.stageAll(), probeGraphite: false }).then(() =>
-            showGraphiteModify(),
-          )
+    const promptModify = ({ message, allChanges }: { message: string; allChanges: boolean }) => {
+      promptMessage({
+        title: allChanges ? "Modify current diff with all changes" : "Modify current diff",
+        initial: message,
+        busyText: "modifying",
+        onConfirm: (value) => {
+          if (!validMessage({ message: value })) return
+          void mutate({
+            label: "Modified current diff.",
+            task: () =>
+              allChanges ? git.graphiteModifyAll({ message: value }) : git.graphiteModify({ message: value }),
+            probeGraphite: true,
+          }).then((ok) => {
+            if (ok) {
+              setState({ message: "" })
+              host.clearDialog()
+            }
+          })
         },
+      })
+    }
+    const openAllChangesModify = () => {
+      void generateMessageFromDiff({ scope: "changed" }).then((message) => {
+        if (!message) return
+        promptModify({ message, allChanges: true })
+      })
+    }
+    if (staged.length === 0 && changed) {
+      if (!config.confirmStageAllOnCommit) {
+        openAllChangesModify()
+        return
+      }
+      host.confirm({
+        title: "Modify with all changes?",
+        message: "There are no staged files. Modify the current diff with all changed files?",
+        onConfirm: openAllChangesModify,
       })
       return
     }
@@ -409,24 +490,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
 
     void generateMessageFromDiff({ scope: "staged" }).then((message) => {
       if (!message) return
-      promptMessage({
-        title: "Modify current diff",
-        initial: message,
-        busyText: "modifying",
-        onConfirm: (value) => {
-          if (!validMessage({ message: value })) return
-          void mutate({
-            label: "Modified current diff.",
-            task: () => git.graphiteModify({ message: value }),
-            probeGraphite: true,
-          }).then((ok) => {
-            if (ok) {
-              setState({ message: "" })
-              host.clearDialog()
-            }
-          })
-        },
-      })
+      promptModify({ message, allChanges: false })
     })
   }
 
@@ -469,7 +533,10 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (value === "open-status") return runtime.showStatus()
       if (value === "stage-all") return void runtime.stageAll()
       if (value === "unstage-all") return void runtime.unstageAll()
-      if (value === "commit") return void runtime.generateMessage()
+      if (value === "commit") {
+        if (!state().files.some((file) => file.staged) && state().files.length > 0) return generateAllChangesCommit()
+        return void runtime.generateMessage()
+      }
       if (value === "push") return void runtime.push()
       if (value === "graphite-create") return showGraphiteCreate()
       if (value === "graphite-modify") return showGraphiteModify()
