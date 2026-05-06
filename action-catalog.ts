@@ -120,11 +120,11 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   {
     value: "commit",
     commandTitle: "GitGud: Commit",
-    dialog: { kind: "select", title: "Commit staged changes" },
+    dialog: { kind: "select", title: "Commit changes" },
     category: "Git",
     keybindName: "gitgud.commit",
     visible: isGitWorkflow,
-    enabled: (state) => isGitWorkflow(state) && hasStaged(state) && !state.busy,
+    enabled: (state) => isGitWorkflow(state) && hasChanged(state) && !state.busy,
   },
   {
     value: "push",
@@ -151,7 +151,7 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
     category: "Git",
     keybindName: "gitgud.graphite_modify",
     visible: isGraphiteWorkflow,
-    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && hasStaged(state) && !state.busy,
+    enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && hasChanged(state) && !state.busy,
   },
   {
     value: "graphite-submit-stack",

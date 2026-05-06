@@ -9,6 +9,7 @@
     "commit-message.ts",
     "config.ts",
     "git.ts",
+    "host-adapter.tsx",
     "runtime.ts",
     "status-dialog.tsx",
     "tui.tsx",
