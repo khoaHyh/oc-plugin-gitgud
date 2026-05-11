@@ -1,9 +1,8 @@
 /** @jsxImportSource @opentui/solid */
-import type { TuiCommand, TuiKeybindSet, TuiPlugin, TuiPluginModule, TuiSlotPlugin } from "@opencode-ai/plugin/tui"
+import type { TuiCommand, TuiPlugin, TuiPluginModule, TuiSlotPlugin } from "@opencode-ai/plugin/tui"
 import { createMemo, createSignal, Show } from "solid-js"
-import { defaultGitGudKeybinds } from "./action-catalog"
 import type { GitFile } from "./change-set"
-import { normalizeConfig } from "./config"
+import { type GitGudConfig, normalizeConfig } from "./config"
 import { createGit } from "./git"
 import { createOpenCodeGitGudHostAdapter } from "./host-adapter"
 import { createGitGudRuntime, type GitGudRuntime } from "./runtime"
@@ -14,7 +13,17 @@ export type { GitGudRuntime }
 export type { GitFile }
 export type { GitGudRuntime as GitGudActions }
 
-const commands = ({ runtime, keybinds }: { runtime: GitGudRuntime; keybinds: TuiKeybindSet }): TuiCommand[] => {
+type GitGudKeybinds = Readonly<{
+  get: (name: string) => string | undefined
+}>
+
+const createGitGudKeybinds = (config: GitGudConfig): GitGudKeybinds => ({
+  get(name) {
+    return config.keybinds[name as keyof typeof config.keybinds]
+  },
+})
+
+const commands = ({ runtime, keybinds }: { runtime: GitGudRuntime; keybinds: GitGudKeybinds }): TuiCommand[] => {
   return runtime.view.commands().map((item) => {
     const keybind = keybinds.get(item.keybindName)
     return {
@@ -69,7 +78,7 @@ const Button = (props: { label: string; onPress: () => void; disabled: boolean; 
   )
 }
 
-const Sidebar = (props: { api: Api; runtime: GitGudRuntime; keybinds: TuiKeybindSet }) => {
+const Sidebar = (props: { api: Api; runtime: GitGudRuntime; keybinds: GitGudKeybinds }) => {
   const theme = createMemo(() => props.api.theme.current)
   const view = createMemo(() => props.runtime.view.sidebar())
   const actionsKeybindHint = createMemo(() => {
@@ -120,7 +129,7 @@ const slot = ({
 }: {
   api: Api
   runtime: GitGudRuntime
-  keybinds: TuiKeybindSet
+  keybinds: GitGudKeybinds
 }): TuiSlotPlugin => {
   return {
     order: 500,
@@ -135,7 +144,7 @@ const slot = ({
 const tui: TuiPlugin = async (api, options) => {
   const optionsValue = normalizeConfig(options)
   if (!optionsValue.enabled) return
-  const keybinds = api.keybind.create(defaultGitGudKeybinds, optionsValue.keybinds)
+  const keybinds = createGitGudKeybinds(optionsValue)
 
   const [state, setStateValue] = createSignal<GitState>({
     loading: true,
