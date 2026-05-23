@@ -224,7 +224,7 @@ describe("GitGud runtime", () => {
 
     harness.runtime.showCommit()
     expect(harness.confirmations.length).toBe(1)
-    expect(harness.confirmations[0]?.title).toBe("Commit all changes?")
+    expect(harness.confirmations[0]?.title).toBe("Commit all changes with git?")
 
     harness.confirm()
     await tick()
@@ -303,7 +303,27 @@ describe("GitGud runtime", () => {
     expect(harness.operations).toContain("commit:fix: refresh")
     expect(harness.operations).toContain("clear-dialog")
     expect(harness.state.message).toBe("")
-    expect(harness.toasts).toEqual([["success", "Committed staged changes."]])
+    expect(harness.toasts).toEqual([["success", "Committed staged changes with git."]])
+  })
+
+  test("plain Git commit remains available in Graphite workflow and refreshes stack state", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ staged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("commit")
+    await tick()
+    harness.confirmCommit({ message: "fix: plain git" })
+    await tick()
+
+    expect(harness.operations).toContain("commit:fix: plain git")
+    expect(harness.operations).toContain("gt-log-short")
+    expect(
+      harness.toasts.some(
+        ([variant, message]) => variant === "success" && message === "Committed staged changes with git.",
+      ),
+    ).toBe(true)
   })
 
   test("push warns when there are no unpushed commits", async () => {
@@ -313,6 +333,25 @@ describe("GitGud runtime", () => {
 
     expect(harness.operations.includes("push")).toBe(false)
     expect(harness.toasts).toEqual([["warning", "No unpushed commits to push."]])
+  })
+
+  test("plain Git push in Graphite workflow is explicit and refreshes stack state", async () => {
+    const harness = createHarness({
+      patch: { unpushedCommits: 1 },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    await harness.runtime.push()
+
+    expect(harness.confirmations[0]?.message).toBe(
+      "Run plain git push on main? This does not submit the Graphite stack.",
+    )
+
+    harness.confirm()
+    await tick()
+
+    expect(harness.operations).toContain("push")
+    expect(harness.operations).toContain("gt-log-short")
   })
 
   test("auto workflow falls back to Git when Graphite is unavailable", async () => {

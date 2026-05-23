@@ -9,11 +9,11 @@ GitGud — an OpenCode TUI plugin that adds lightweight Git staging, commit mess
 - **GitGud** — the plugin; also the namespace for its UI surfaces and commands.
 - **Git Status** — the live view of changed files in the worktree: staged, unstaged, untracked, and renamed.
 - **Git change-set** — the collection of changed files with derived display facts (status label, color, additions/deletions, sort order).
-- **Git action catalog** — the register of user-facing actions (stage, unstage, commit, push, and Graphite actions) with titles, categories, values, and enablement rules.
+- **Git action catalog** — the register of user-facing actions (stage, unstage, plain Git commit/push, and Graphite actions) with titles, categories, values, and enablement rules.
 - **Commit message** — the subject and optional body produced by the commit-message generation flow.
 - **Commit workflow** — the user-facing path that commits staged changes, or when no files are staged optionally confirms committing all changed files, generates an editable Commit message, and applies the chosen changes on final confirmation.
 - **Commit agent** — the OpenCode agent used when generating a commit message.
-- **GitGud config** — the normalized runtime options loaded from the `package.json` export config and consumed by GitGud boot and actions.
+- **GitGud config** — the normalized runtime options loaded from the `package.json` export config and consumed by GitGud boot and actions; `workflow` selects the primary workflow rather than excluding plain Git actions.
 - **GitGud runtime** — the deepened module that owns GitGud state transitions, Git Status refresh, Git mutations, Commit message workflow, and action execution behind the TUI assembly seam.
 - **GitGud host adapter** — the adapter from the OpenCode TUI plugin API into runtime requests for dialogs, toasts, command registration, lifecycle, keybinds, and Commit agent sessions.
 - **Git process adapter** — the adapter that executes git commands in the current worktree for Git Status, staging, committing, and pushing.
@@ -36,4 +36,5 @@ GitGud — an OpenCode TUI plugin that adds lightweight Git staging, commit mess
 - Runtime tests should use in-memory GitGud host and Git process adapters so the runtime seam is real, not hypothetical.
 - Sidebar and Git Status dialog should render GitGud view model facts instead of recomputing raw Git State policy locally.
 - Git action catalog data stays declarative; GitGud runtime owns action execution policy, including Git Status file selection behaviour.
+- When Graphite is the active workflow, GitGud should show Graphite actions first while keeping explicit plain Git commit/push actions available in the Actions palette.
 - GitGud host adapter owns OpenCode lifecycle wiring such as watcher registration, debounced refresh scheduling, command registration, slot registration, and cleanup.

@@ -57,6 +57,7 @@ describe("GitGud view model", () => {
     expect(actionValues.includes("action:open-status")).toBe(false)
     expect(actionValues.includes("action:refresh")).toBe(false)
     expect(actionValues.includes("action:stage-all")).toBe(true)
+    expect(view.options.find((o) => o.kind === "action" && o.action === "stage-all")?.category).toBe("Working Tree")
 
     const firstFile = view.options.find((o) => o.kind === "file")
     expect(firstFile).toEqual({
