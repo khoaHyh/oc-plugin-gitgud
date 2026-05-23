@@ -41,9 +41,10 @@ Plugin options can be configured via the `tui.json` config file.
 ### TUI
 
 - `enabled` (`boolean`, default `true`)
-- `workflow` (`"auto" | "git" | "graphite"`, default `"auto"`) chooses the GitGud workflow.
-  `auto` uses Graphite controls when the `gt` CLI can read the current stack; otherwise it keeps
-  the standard Git controls.
+- `workflow` (`"auto" | "git" | "graphite"`, default `"auto"`) chooses the primary GitGud workflow.
+  `auto` adds Graphite controls when the `gt` CLI can read the current stack; otherwise it keeps
+  the standard Git controls. When Graphite controls are active, plain Git commit and push actions
+  remain available as explicit escape hatches.
 - `replace_sidebar_files` (`boolean`, default `false`) disables OpenCode's default Modified Files sidebar card
 - `confirm_push` (`boolean`, default `true`)
 - `confirm_stage_all_on_commit` (`boolean`, default `true`) asks before committing all changed files
@@ -91,13 +92,15 @@ OpenCode's lowercase leader defaults:
 
 ### Graphite workflow
 
-Commit generates an editable commit message for staged changes, then commits after confirmation. If no
-files are staged and `confirm_stage_all_on_commit` is enabled, GitGud asks before generating a message
-for all changed files; it stages and commits those changes only after you accept the final commit prompt.
+Plain Git commit generates an editable commit message for staged changes, then commits after
+confirmation. If no files are staged and `confirm_stage_all_on_commit` is enabled, GitGud asks before
+generating a message for all changed files; it stages and commits those changes only after you accept
+the final commit prompt.
 
 When `workflow` is `"graphite"`, or `"auto"` detects a usable [Graphite](https://graphite.com/)
-CLI stack, GitGud keeps the same simple working-tree controls but swaps commit/push for stacked-diff
-actions using Graphite's canonical commands:
+CLI stack, GitGud keeps the same simple working-tree controls, shows Graphite actions first, and keeps
+plain Git commit/push actions available in the same Actions palette. Graphite actions use Graphite's
+canonical commands:
 
 - Create Graphite branch: prompts for a branch name, then runs `gt create <branch> --no-interactive`
   without staging or committing changes. If files are staged, GitGud asks you to unstage them first
@@ -116,12 +119,12 @@ actions using Graphite's canonical commands:
 - `GitGud: Stage all`
 - `GitGud: Unstage all`
 - `GitGud: Open Git Status`
-- `GitGud: Commit` (generates an editable commit message before committing)
-- `GitGud: Push`
+- `GitGud: Commit changes with git` (generates an editable commit message before committing)
+- `GitGud: Push current branch with git`
 - `GitGud: Create Graphite branch`
-- `GitGud: Modify current diff`
-- `GitGud: Submit stack`
-- `GitGud: Sync stack`
-- `GitGud: Move up stack`
-- `GitGud: Move down stack`
+- `GitGud: Modify current diff with Graphite`
+- `GitGud: Submit Graphite stack`
+- `GitGud: Sync Graphite stack`
+- `GitGud: Move up Graphite stack`
+- `GitGud: Move down Graphite stack`
 - `GitGud: Refresh`

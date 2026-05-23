@@ -234,6 +234,8 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     return result.ok
   }
 
+  const plainGitProbeGraphite = () => state().workflow === "graphite"
+
   const commit = async ({ message }: { message: string }) => {
     const parts = commitMessageParts({ message })
     if (!parts.summary) {
@@ -241,7 +243,11 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       return
     }
     if (
-      await mutate({ label: "Committed staged changes.", task: () => git.commit({ message }), probeGraphite: false })
+      await mutate({
+        label: "Committed staged changes with git.",
+        task: () => git.commit({ message }),
+        probeGraphite: plainGitProbeGraphite(),
+      })
     ) {
       setState({ message: "" })
       host.clearDialog()
@@ -256,12 +262,12 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
     if (
       await mutate({
-        label: "Committed all changes.",
+        label: "Committed all changes with git.",
         task: async () => {
           await git.stageAll()
           return git.commit({ message })
         },
-        probeGraphite: false,
+        probeGraphite: plainGitProbeGraphite(),
       })
     ) {
       setState({ message: "" })
@@ -299,7 +305,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
 
   const showCommitPrompt = ({ initial, allChanges }: { initial: string; allChanges: boolean }) => {
     promptMessage({
-      title: allChanges ? "Commit all changes" : "Commit staged changes",
+      title: allChanges ? "Commit all changes with git" : "Commit staged changes with git",
       initial,
       busyText: "committing",
       onConfirm: (value) => void (allChanges ? commitAll({ message: value }) : commit({ message: value })),
@@ -312,8 +318,8 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
 
     if (staged.length === 0 && changed && config.confirmStageAllOnCommit) {
       host.confirm({
-        title: "Commit all changes?",
-        message: "There are no staged files. Commit all changed files?",
+        title: "Commit all changes with git?",
+        message: "There are no staged files. Commit all changed files with git?",
         onConfirm: () => {
           showCommitPrompt({ initial, allChanges: true })
         },
@@ -398,8 +404,8 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       return
     }
     host.confirm({
-      title: "Commit all changes?",
-      message: "There are no staged files. Commit all changed files?",
+      title: "Commit all changes with git?",
+      message: "There are no staged files. Commit all changed files with git?",
       onConfirm: openAllChangesCommit,
     })
   }
@@ -446,13 +452,13 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     const changed = state().files.length > 0
     const promptModify = ({ message, allChanges }: { message: string; allChanges: boolean }) => {
       promptMessage({
-        title: allChanges ? "Modify current diff with all changes" : "Modify current diff",
+        title: allChanges ? "Modify current diff with all changes using Graphite" : "Modify current diff with Graphite",
         initial: message,
         busyText: "modifying",
         onConfirm: (value) => {
           if (!validMessage({ message: value })) return
           void mutate({
-            label: "Modified current diff.",
+            label: "Modified current diff with Graphite.",
             task: () =>
               allChanges ? git.graphiteModifyAll({ message: value }) : git.graphiteModify({ message: value }),
             probeGraphite: true,
@@ -477,8 +483,8 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
         return
       }
       host.confirm({
-        title: "Modify with all changes?",
-        message: "There are no staged files. Modify the current diff with all changed files?",
+        title: "Modify current diff with Graphite?",
+        message: "There are no staged files. Modify the current Graphite diff with all changed files?",
         onConfirm: openAllChangesModify,
       })
       return
@@ -508,7 +514,12 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       return
     }
 
-    const run = () => mutate({ label: "Pushed current branch.", task: () => git.push(), probeGraphite: false })
+    const run = () =>
+      mutate({
+        label: "Pushed current branch with git.",
+        task: () => git.push(),
+        probeGraphite: plainGitProbeGraphite(),
+      })
     if (!config.confirmPush) {
       await run()
       return
@@ -516,7 +527,10 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
 
     host.confirm({
       title: "Push current branch?",
-      message: `Run git push${state().branch ? ` on ${state().branch}` : ""}?`,
+      message:
+        state().workflow === "graphite"
+          ? `Run plain git push${state().branch ? ` on ${state().branch}` : ""}? This does not submit the Graphite stack.`
+          : `Run git push${state().branch ? ` on ${state().branch}` : ""}?`,
       onConfirm: () => void run(),
     })
   }
@@ -541,12 +555,14 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (value === "graphite-create") return showGraphiteCreate()
       if (value === "graphite-modify") return showGraphiteModify()
       if (value === "graphite-submit-stack") {
-        return graphiteMutation({ label: "Submitted stack.", task: () => git.graphiteSubmitStack() })
+        return graphiteMutation({ label: "Submitted Graphite stack.", task: () => git.graphiteSubmitStack() })
       }
-      if (value === "graphite-sync") return graphiteMutation({ label: "Synced stack.", task: () => git.graphiteSync() })
-      if (value === "graphite-up") return graphiteMutation({ label: "Moved up stack.", task: () => git.graphiteUp() })
+      if (value === "graphite-sync")
+        return graphiteMutation({ label: "Synced Graphite stack.", task: () => git.graphiteSync() })
+      if (value === "graphite-up")
+        return graphiteMutation({ label: "Moved up Graphite stack.", task: () => git.graphiteUp() })
       if (value === "graphite-down")
-        return graphiteMutation({ label: "Moved down stack.", task: () => git.graphiteDown() })
+        return graphiteMutation({ label: "Moved down Graphite stack.", task: () => git.graphiteDown() })
       if (value === "refresh") return void runtime.refresh()
     },
     runDialogAction(value) {

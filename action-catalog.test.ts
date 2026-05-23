@@ -74,7 +74,7 @@ describe("Git action catalog", () => {
     expect(busy.every((item) => item.disabled)).toBe(true)
   })
 
-  test("shows Graphite actions only in Graphite workflow", () => {
+  test("shows Graphite actions alongside explicit plain Git actions in Graphite workflow", () => {
     const options = gitDialogActionOptions({
       state: state({
         workflow: "graphite",
@@ -83,10 +83,24 @@ describe("Git action catalog", () => {
       }),
     })
 
-    expect(options.some((item) => item.value === "action:commit")).toBe(false)
-    expect(options.some((item) => item.value === "action:push")).toBe(false)
-    expect(options.find((item) => item.value === "action:graphite-create")?.disabled).toBe(false)
+    expect(options.map((item) => item.value)).toEqual([
+      "action:stage-all",
+      "action:unstage-all",
+      "action:graphite-create",
+      "action:graphite-modify",
+      "action:graphite-submit-stack",
+      "action:graphite-sync",
+      "action:graphite-up",
+      "action:graphite-down",
+      "action:commit",
+      "action:push",
+    ])
+    expect(options.find((item) => item.value === "action:graphite-create")?.category).toBe("Graphite")
     expect(options.find((item) => item.value === "action:graphite-modify")?.disabled).toBe(false)
-    expect(options.find((item) => item.value === "action:graphite-submit-stack")?.disabled).toBe(false)
+    expect(options.find((item) => item.value === "action:commit")?.category).toBe("Plain Git")
+    expect(options.find((item) => item.value === "action:push")?.category).toBe("Plain Git")
+
+    const gitOptions = gitDialogActionOptions({ state: state({ files: [file({ unstaged: true })] }) })
+    expect(gitOptions.some((item) => item.value.startsWith("action:graphite-"))).toBe(false)
   })
 })

@@ -16,6 +16,7 @@ export type GitActionValue =
 
 export type GitDialogActionValue = Exclude<GitActionValue, "open-status" | "refresh">
 export type GitDialogActionOptionValue = `action:${GitDialogActionValue}`
+export type GitDialogActionCategory = "Working Tree" | "Graphite" | "Plain Git"
 type GitCommandOnlyActionValue = Exclude<GitActionValue, GitDialogActionValue>
 export type GitActionKeybindName =
   | "gitgud.open_status"
@@ -36,6 +37,7 @@ type GitActionCatalogDialog =
   | Readonly<{
       kind: "select"
       title: string
+      category: GitDialogActionCategory
     }>
 
 type GitActionCatalogBase<TActionValue extends GitActionValue> = Readonly<{
@@ -77,7 +79,6 @@ export const defaultGitGudKeybinds = {
 const hasStaged = (state: GitState) => state.files.some((file) => file.staged)
 const hasUnstaged = (state: GitState) => state.files.some((file) => file.unstaged || file.untracked)
 const hasChanged = (state: GitState) => state.files.length > 0
-const isGitWorkflow = (state: GitState) => state.workflow === "git"
 const isGraphiteWorkflow = (state: GitState) => state.workflow === "graphite"
 
 export const isGitDialogActionCatalogItem = (item: GitActionCatalogItem): item is GitDialogActionCatalogItem => {
@@ -102,7 +103,7 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   {
     value: "stage-all",
     commandTitle: "GitGud: Stage all",
-    dialog: { kind: "select", title: "Stage all changes" },
+    dialog: { kind: "select", title: "Stage all changes", category: "Working Tree" },
     category: "Git",
     keybindName: "gitgud.stage_all",
     visible: () => true,
@@ -111,34 +112,16 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   {
     value: "unstage-all",
     commandTitle: "GitGud: Unstage all",
-    dialog: { kind: "select", title: "Unstage all changes" },
+    dialog: { kind: "select", title: "Unstage all changes", category: "Working Tree" },
     category: "Git",
     keybindName: "gitgud.unstage_all",
     visible: () => true,
     enabled: (state) => hasStaged(state) && !state.busy,
   },
   {
-    value: "commit",
-    commandTitle: "GitGud: Commit",
-    dialog: { kind: "select", title: "Commit changes" },
-    category: "Git",
-    keybindName: "gitgud.commit",
-    visible: isGitWorkflow,
-    enabled: (state) => isGitWorkflow(state) && hasChanged(state) && !state.busy,
-  },
-  {
-    value: "push",
-    commandTitle: "GitGud: Push",
-    dialog: { kind: "select", title: "Push current branch" },
-    category: "Git",
-    keybindName: "gitgud.push",
-    visible: isGitWorkflow,
-    enabled: (state) => isGitWorkflow(state) && state.unpushedCommits > 0 && !state.busy,
-  },
-  {
     value: "graphite-create",
     commandTitle: "GitGud: Create Graphite branch",
-    dialog: { kind: "select", title: "Create Graphite branch" },
+    dialog: { kind: "select", title: "Create Graphite branch", category: "Graphite" },
     category: "Git",
     keybindName: "gitgud.graphite_create",
     visible: isGraphiteWorkflow,
@@ -146,8 +129,8 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   },
   {
     value: "graphite-modify",
-    commandTitle: "GitGud: Modify current diff",
-    dialog: { kind: "select", title: "Modify current diff" },
+    commandTitle: "GitGud: Modify current diff with Graphite",
+    dialog: { kind: "select", title: "Modify current diff with Graphite", category: "Graphite" },
     category: "Git",
     keybindName: "gitgud.graphite_modify",
     visible: isGraphiteWorkflow,
@@ -155,8 +138,8 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   },
   {
     value: "graphite-submit-stack",
-    commandTitle: "GitGud: Submit stack",
-    dialog: { kind: "select", title: "Submit stack" },
+    commandTitle: "GitGud: Submit Graphite stack",
+    dialog: { kind: "select", title: "Submit Graphite stack", category: "Graphite" },
     category: "Git",
     keybindName: "gitgud.graphite_submit_stack",
     visible: isGraphiteWorkflow,
@@ -164,8 +147,8 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   },
   {
     value: "graphite-sync",
-    commandTitle: "GitGud: Sync stack",
-    dialog: { kind: "select", title: "Sync stack" },
+    commandTitle: "GitGud: Sync Graphite stack",
+    dialog: { kind: "select", title: "Sync Graphite stack", category: "Graphite" },
     category: "Git",
     keybindName: "gitgud.graphite_sync",
     visible: isGraphiteWorkflow,
@@ -173,8 +156,8 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   },
   {
     value: "graphite-up",
-    commandTitle: "GitGud: Move up stack",
-    dialog: { kind: "select", title: "Move up stack" },
+    commandTitle: "GitGud: Move up Graphite stack",
+    dialog: { kind: "select", title: "Move up Graphite stack", category: "Graphite" },
     category: "Git",
     keybindName: "gitgud.graphite_up",
     visible: isGraphiteWorkflow,
@@ -182,12 +165,30 @@ export const gitActionCatalog: ReadonlyArray<GitActionCatalogItem> = [
   },
   {
     value: "graphite-down",
-    commandTitle: "GitGud: Move down stack",
-    dialog: { kind: "select", title: "Move down stack" },
+    commandTitle: "GitGud: Move down Graphite stack",
+    dialog: { kind: "select", title: "Move down Graphite stack", category: "Graphite" },
     category: "Git",
     keybindName: "gitgud.graphite_down",
     visible: isGraphiteWorkflow,
     enabled: (state) => isGraphiteWorkflow(state) && state.graphite.available && !state.busy,
+  },
+  {
+    value: "commit",
+    commandTitle: "GitGud: Commit changes with git",
+    dialog: { kind: "select", title: "Commit changes with git", category: "Plain Git" },
+    category: "Git",
+    keybindName: "gitgud.commit",
+    visible: () => true,
+    enabled: (state) => hasChanged(state) && !state.busy,
+  },
+  {
+    value: "push",
+    commandTitle: "GitGud: Push current branch with git",
+    dialog: { kind: "select", title: "Push current branch with git", category: "Plain Git" },
+    category: "Git",
+    keybindName: "gitgud.push",
+    visible: () => true,
+    enabled: (state) => state.unpushedCommits > 0 && !state.busy,
   },
   {
     value: "refresh",
@@ -214,7 +215,7 @@ export const gitDialogActionOptions = ({ state }: { state: GitState }) => {
       {
         title: item.dialog.title,
         value: gitDialogActionOptionValue(value),
-        category: "Actions",
+        category: item.dialog.category,
         disabled: !item.enabled(state),
       },
     ]

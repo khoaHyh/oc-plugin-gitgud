@@ -4,6 +4,7 @@ import {
   gitDialogActionOptionValue,
   isGitDialogActionCatalogItem,
   type GitActionValue,
+  type GitDialogActionCategory,
   type GitDialogActionOptionValue,
   type GitDialogActionValue,
 } from "./action-catalog"
@@ -31,7 +32,7 @@ export type GitStatusActionOptionViewModel = Readonly<{
   kind: "action"
   title: string
   value: GitDialogActionOptionValue
-  category: "Actions"
+  category: GitDialogActionCategory
   disabled: boolean
   action: GitDialogActionValue
 }>
@@ -103,7 +104,7 @@ export const createGitStatusDialogViewModel = ({ state }: { state: GitState }): 
             kind: "action",
             title: item.dialog.title,
             value: gitDialogActionOptionValue(item.value),
-            category: "Actions",
+            category: item.dialog.category,
             disabled: !item.enabled(state),
             action: item.value,
           },
