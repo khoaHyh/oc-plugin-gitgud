@@ -217,24 +217,36 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     }
   }
 
+  const refreshGraphiteMetadata = async () => {
+    const result = await attempt(() => graphiteState({ probeGraphite: true }))
+    if (result.ok) setState(result.value)
+  }
+
   const mutate = async ({
     label,
     task,
     probeGraphite,
+    probeGraphiteOnFailure,
+    followUpProbeGraphite,
   }: {
     label: string
     task: () => Promise<unknown>
     probeGraphite: boolean
+    probeGraphiteOnFailure?: boolean
+    followUpProbeGraphite?: boolean
   }) => {
     if (state().busy) return false
     setState({ busy: true })
     const result = await attempt(task)
     host.toast(result.ok ? { variant: "success", message: label } : { variant: "error", message: result.error })
-    await refresh({ patch: { busy: false }, loading: false, probeGraphite })
+    await refresh({
+      patch: { busy: false },
+      loading: false,
+      probeGraphite: result.ok ? probeGraphite : probeGraphite || (probeGraphiteOnFailure ?? false),
+    })
+    if (result.ok && followUpProbeGraphite) void refreshGraphiteMetadata()
     return result.ok
   }
-
-  const plainGitProbeGraphite = () => state().workflow === "graphite"
 
   const commit = async ({ message }: { message: string }) => {
     const parts = commitMessageParts({ message })
@@ -246,7 +258,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       await mutate({
         label: "Committed staged changes with git.",
         task: () => git.commit({ message }),
-        probeGraphite: plainGitProbeGraphite(),
+        probeGraphite: false,
       })
     ) {
       setState({ message: "" })
@@ -267,7 +279,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
           await git.stageAll()
           return git.commit({ message })
         },
-        probeGraphite: plainGitProbeGraphite(),
+        probeGraphite: false,
       })
     ) {
       setState({ message: "" })
@@ -461,7 +473,8 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
             label: "Modified current diff with Graphite.",
             task: () =>
               allChanges ? git.graphiteModifyAll({ message: value }) : git.graphiteModify({ message: value }),
-            probeGraphite: true,
+            probeGraphite: false,
+            probeGraphiteOnFailure: true,
           }).then((ok) => {
             if (ok) {
               setState({ message: "" })
@@ -500,12 +513,24 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
     })
   }
 
-  const graphiteMutation = ({ label, task }: { label: string; task: () => Promise<GitResult> }) => {
+  const graphiteMutation = ({
+    label,
+    task,
+    probeGraphite,
+    probeGraphiteOnFailure,
+    followUpProbeGraphite,
+  }: {
+    label: string
+    task: () => Promise<GitResult>
+    probeGraphite: boolean
+    probeGraphiteOnFailure?: boolean
+    followUpProbeGraphite?: boolean
+  }) => {
     if (!state().graphite.available) {
       host.toast({ variant: "warning", message: "Graphite CLI is not available for this repository." })
       return
     }
-    void mutate({ label, task, probeGraphite: true })
+    void mutate({ label, task, probeGraphite, probeGraphiteOnFailure, followUpProbeGraphite })
   }
 
   const push: GitGudRuntime["push"] = async () => {
@@ -518,7 +543,7 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       mutate({
         label: "Pushed current branch with git.",
         task: () => git.push(),
-        probeGraphite: plainGitProbeGraphite(),
+        probeGraphite: false,
       })
     if (!config.confirmPush) {
       await run()
@@ -555,14 +580,32 @@ export const createGitGudRuntime = ({ git, host, config, state, setState }: GitG
       if (value === "graphite-create") return showGraphiteCreate()
       if (value === "graphite-modify") return showGraphiteModify()
       if (value === "graphite-submit-stack") {
-        return graphiteMutation({ label: "Submitted Graphite stack.", task: () => git.graphiteSubmitStack() })
+        return graphiteMutation({
+          label: "Submitted Graphite stack.",
+          task: () => git.graphiteSubmitStack(),
+          probeGraphite: false,
+          probeGraphiteOnFailure: true,
+          followUpProbeGraphite: true,
+        })
       }
       if (value === "graphite-sync")
-        return graphiteMutation({ label: "Synced Graphite stack.", task: () => git.graphiteSync() })
+        return graphiteMutation({
+          label: "Synced Graphite stack.",
+          task: () => git.graphiteSync(),
+          probeGraphite: true,
+        })
       if (value === "graphite-up")
-        return graphiteMutation({ label: "Moved up Graphite stack.", task: () => git.graphiteUp() })
+        return graphiteMutation({
+          label: "Moved up Graphite stack.",
+          task: () => git.graphiteUp(),
+          probeGraphite: true,
+        })
       if (value === "graphite-down")
-        return graphiteMutation({ label: "Moved down Graphite stack.", task: () => git.graphiteDown() })
+        return graphiteMutation({
+          label: "Moved down Graphite stack.",
+          task: () => git.graphiteDown(),
+          probeGraphite: true,
+        })
       if (value === "refresh") return void runtime.refresh()
     },
     runDialogAction(value) {

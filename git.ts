@@ -15,8 +15,16 @@ type GitRunInput = Readonly<{
   failure: "throw" | "allow"
 }>
 
+export const graphiteModifyArgs = ({ message }: { message: string }): ReadonlyArray<string> => {
+  return ["modify", "--commit", "--message", message, "--no-interactive"]
+}
+
 export const graphiteModifyAllArgs = ({ message }: { message: string }): ReadonlyArray<string> => {
-  return ["modify", "--commit", "--all", "--message", message]
+  return ["modify", "--commit", "--all", "--message", message, "--no-interactive"]
+}
+
+export const graphiteSubmitStackArgs = (): ReadonlyArray<string> => {
+  return ["submit", "--stack", "--no-interactive", "--no-edit", "--no-ai"]
 }
 
 export const createGit = ({ api }: { api: Api }) => {
@@ -111,13 +119,13 @@ export const createGit = ({ api }: { api: Api }) => {
       return run({ bin: "gt", args: ["create", branch, "--no-interactive"], failure: "throw" })
     },
     graphiteModify({ message }: { message: string }) {
-      return run({ bin: "gt", args: ["modify", "--commit", "--message", message], failure: "throw" })
+      return run({ bin: "gt", args: graphiteModifyArgs({ message }), failure: "throw" })
     },
     graphiteModifyAll({ message }: { message: string }) {
       return run({ bin: "gt", args: graphiteModifyAllArgs({ message }), failure: "throw" })
     },
     graphiteSubmitStack() {
-      return run({ bin: "gt", args: ["submit", "--stack"], failure: "throw" })
+      return run({ bin: "gt", args: graphiteSubmitStackArgs(), failure: "throw" })
     },
     graphiteSync() {
       return run({ bin: "gt", args: ["sync"], failure: "throw" })

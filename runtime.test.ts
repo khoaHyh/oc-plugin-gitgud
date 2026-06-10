@@ -29,6 +29,8 @@ type HarnessInput = Readonly<{
   config: GitGudConfig
   graphiteLog: GitResult
   graphiteLogShort: () => Promise<GitResult>
+  graphiteModify: GitProcessAdapter["graphiteModify"]
+  graphiteSubmitStack: GitProcessAdapter["graphiteSubmitStack"]
   status: () => Promise<ReadonlyArray<GitFile>>
 }>
 
@@ -121,6 +123,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
     },
     async graphiteModify({ message }) {
       operations.push(`gt-modify:${message}`)
+      if (input.graphiteModify) return input.graphiteModify({ message })
       return result()
     },
     async graphiteModifyAll({ message }) {
@@ -129,6 +132,7 @@ const createHarness = (input: Partial<HarnessInput> = {}) => {
     },
     async graphiteSubmitStack() {
       operations.push("gt-submit-stack")
+      if (input.graphiteSubmitStack) return input.graphiteSubmitStack()
       return result()
     },
     async graphiteSync() {
@@ -306,7 +310,7 @@ describe("GitGud runtime", () => {
     expect(harness.toasts).toEqual([["success", "Committed staged changes with git."]])
   })
 
-  test("plain Git commit remains available in Graphite workflow and refreshes stack state", async () => {
+  test("plain Git commit remains available in Graphite workflow without re-probing stack state", async () => {
     const harness = createHarness({
       patch: { files: [file({ staged: true })] },
       config: { ...defaultConfig, workflow: "graphite" },
@@ -318,12 +322,29 @@ describe("GitGud runtime", () => {
     await tick()
 
     expect(harness.operations).toContain("commit:fix: plain git")
-    expect(harness.operations).toContain("gt-log-short")
+    expect(harness.operations.includes("gt-log-short")).toBe(false)
     expect(
       harness.toasts.some(
         ([variant, message]) => variant === "success" && message === "Committed staged changes with git.",
       ),
     ).toBe(true)
+  })
+
+  test("plain Git all-changes commit in Graphite workflow avoids re-probing stack state", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ unstaged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+    })
+
+    harness.runtime.runAction("commit")
+    harness.confirm()
+    await tick()
+    harness.confirmCommit({ message: "fix: plain git all changes" })
+    await tick()
+
+    expect(harness.operations).toContain("stage-all")
+    expect(harness.operations).toContain("commit:fix: plain git all changes")
+    expect(harness.operations.includes("gt-log-short")).toBe(false)
   })
 
   test("push warns when there are no unpushed commits", async () => {
@@ -335,7 +356,7 @@ describe("GitGud runtime", () => {
     expect(harness.toasts).toEqual([["warning", "No unpushed commits to push."]])
   })
 
-  test("plain Git push in Graphite workflow is explicit and refreshes stack state", async () => {
+  test("plain Git push in Graphite workflow is explicit without re-probing stack state", async () => {
     const harness = createHarness({
       patch: { unpushedCommits: 1 },
       config: { ...defaultConfig, workflow: "graphite" },
@@ -351,7 +372,7 @@ describe("GitGud runtime", () => {
     await tick()
 
     expect(harness.operations).toContain("push")
-    expect(harness.operations).toContain("gt-log-short")
+    expect(harness.operations.includes("gt-log-short")).toBe(false)
   })
 
   test("auto workflow falls back to Git when Graphite is unavailable", async () => {
@@ -537,6 +558,28 @@ describe("GitGud runtime", () => {
     expect(harness.operations).toContain("staged-stat")
     expect(harness.operations).toContain("staged-diff")
     expect(harness.operations).toContain("gt-modify:fix: amend current diff")
+    expect(harness.operations.includes("gt-log-short")).toBe(false)
+  })
+
+  test("Graphite modify failure re-probes stack availability", async () => {
+    const harness = createHarness({
+      patch: { files: [file({ staged: true })] },
+      config: { ...defaultConfig, workflow: "graphite" },
+      graphiteModify: async () => {
+        throw new Error("gt missing")
+      },
+      graphiteLogShort: () => Promise.resolve({ code: 1, stdout: "", stderr: "gt missing" }),
+    })
+
+    harness.runtime.runAction("graphite-modify")
+    await tick()
+    harness.confirmCommit({ message: "fix: amend current diff" })
+    await tick()
+
+    expect(harness.operations).toContain("gt-modify:fix: amend current diff")
+    expect(harness.operations).toContain("gt-log-short")
+    expect(harness.state.graphite.available).toBe(false)
+    expect(harness.toasts).toEqual([["error", "gt missing"]])
   })
 
   test("Graphite modify uses native all-changes commit after final message confirmation", async () => {
@@ -561,6 +604,7 @@ describe("GitGud runtime", () => {
 
     expect(harness.operations).toContain("gt-modify-all:feat: add stack changes")
     expect(harness.operations.includes("gt-modify:feat: add stack changes")).toBe(false)
+    expect(harness.operations.includes("gt-log-short")).toBe(false)
   })
 
   test("Graphite modify all-changes workflow skips the confirmation when configured", async () => {
@@ -577,6 +621,7 @@ describe("GitGud runtime", () => {
     expect(harness.confirmations.length).toBe(0)
     expect(harness.operations).toContain("changed-stat")
     expect(harness.operations).toContain("gt-modify-all:feat: graphite all changes")
+    expect(harness.operations.includes("gt-log-short")).toBe(false)
   })
 
   test("Graphite stack actions use canonical gt commands", async () => {
@@ -596,5 +641,63 @@ describe("GitGud runtime", () => {
     expect(harness.operations).toContain("gt-up")
     expect(harness.operations).toContain("gt-down")
     expect(harness.operations.filter((op) => op === "gt-log-short").length).toBe(4)
+  })
+
+  test("Graphite submit stack refreshes stack state in the background", async () => {
+    let releaseGraphite: (() => void) | undefined
+    const graphiteReleased = new Promise<void>((resolve) => {
+      releaseGraphite = resolve
+    })
+    const harness = createHarness({
+      config: { ...defaultConfig, workflow: "graphite" },
+      graphiteLogShort: async () => {
+        await graphiteReleased
+        return result("◉ submitted\n")
+      },
+    })
+
+    harness.runtime.runAction("graphite-submit-stack")
+    await tick()
+
+    expect(harness.operations).toContain("gt-submit-stack")
+    expect(harness.operations).toContain("gt-log-short")
+    expect(harness.state.busy).toBe(false)
+    expect(harness.state.graphite.summary).toBeUndefined()
+
+    if (!releaseGraphite) throw new Error("Expected Graphite probe to be pending")
+    releaseGraphite()
+    await tick()
+
+    expect(harness.state.graphite).toEqual({ available: true, summary: "◉ submitted" })
+  })
+
+  test("Graphite submit background refresh does not block later mutation busy state", async () => {
+    let releaseGraphite: (() => void) | undefined
+    const graphiteReleased = new Promise<void>((resolve) => {
+      releaseGraphite = resolve
+    })
+    const harness = createHarness({
+      config: { ...defaultConfig, workflow: "graphite" },
+      graphiteLogShort: async () => {
+        await graphiteReleased
+        return result("◉ submitted\n")
+      },
+    })
+
+    harness.runtime.runAction("graphite-submit-stack")
+    await tick()
+
+    expect(harness.operations).toContain("gt-log-short")
+    expect(harness.state.busy).toBe(false)
+
+    void harness.runtime.stageAll()
+    await tick()
+
+    expect(harness.operations).toContain("stage-all")
+    expect(harness.state.busy).toBe(false)
+
+    if (!releaseGraphite) throw new Error("Expected Graphite probe to be pending")
+    releaseGraphite()
+    await tick()
   })
 })
